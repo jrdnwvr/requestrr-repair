@@ -499,5 +499,120 @@ namespace Requestrr.WebApi.RequestrrBot.Locale
 
         [JsonProperty("Discord.Command.Music.Artist.Notification.Success")]
         public string DiscordCommandMusicArtistNotificationSuccess { get; set; }
+
+
+        // ----- /repair feature strings -----
+
+        [JsonProperty("Discord.Command.Repair.Group.Name")]
+        public string DiscordCommandRepairGroupName { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Group.Description")]
+        public string DiscordCommandRepairGroupDescription { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Movie.Name")]
+        public string DiscordCommandRepairMovieName { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Movie.Description")]
+        public string DiscordCommandRepairMovieDescription { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Movie.Title.Option.Name")]
+        public string DiscordCommandRepairMovieTitleOptionName { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Movie.Title.Option.Description")]
+        public string DiscordCommandRepairMovieTitleOptionDescription { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Tv.Name")]
+        public string DiscordCommandRepairTvName { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Tv.Description")]
+        public string DiscordCommandRepairTvDescription { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Tv.Title.Option.Name")]
+        public string DiscordCommandRepairTvTitleOptionName { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Tv.Title.Option.Description")]
+        public string DiscordCommandRepairTvTitleOptionDescription { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Tv.Season.Option.Name")]
+        public string DiscordCommandRepairTvSeasonOptionName { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Tv.Season.Option.Description")]
+        public string DiscordCommandRepairTvSeasonOptionDescription { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Tv.Episode.Option.Name")]
+        public string DiscordCommandRepairTvEpisodeOptionName { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Tv.Episode.Option.Description")]
+        public string DiscordCommandRepairTvEpisodeOptionDescription { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.ConfirmButton")]
+        public string DiscordCommandRepairConfirmButton { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.CancelButton")]
+        public string DiscordCommandRepairCancelButton { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.DoneButton")]
+        public string DiscordCommandRepairDoneButton { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.FailedButton")]
+        public string DiscordCommandRepairFailedButton { get; set; }
+
+        [JsonProperty("Discord.Command.Repair.Disabled")]
+        public string DiscordCommandRepairDisabled { get; set; }
+
+        [JsonProperty("Discord.Command.Movie.Repair.Confirm")]
+        public string DiscordCommandMovieRepairConfirm { get; set; }
+
+        [JsonProperty("Discord.Command.Movie.Repair.ConfirmNoDelete")]
+        public string DiscordCommandMovieRepairConfirmNoDelete { get; set; }
+
+        [JsonProperty("Discord.Command.Movie.Repair.Success")]
+        public string DiscordCommandMovieRepairSuccess { get; set; }
+
+        [JsonProperty("Discord.Command.Movie.Repair.Failed")]
+        public string DiscordCommandMovieRepairFailed { get; set; }
+
+        [JsonProperty("Discord.Command.Movie.Repair.Cancelled")]
+        public string DiscordCommandMovieRepairCancelled { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.Confirm")]
+        public string DiscordCommandTvRepairConfirm { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.ConfirmNoDelete")]
+        public string DiscordCommandTvRepairConfirmNoDelete { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.Success")]
+        public string DiscordCommandTvRepairSuccess { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.Failed")]
+        public string DiscordCommandTvRepairFailed { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.Cancelled")]
+        public string DiscordCommandTvRepairCancelled { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.SeasonDropdown")]
+        public string DiscordCommandTvRepairSeasonDropdown { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.SeasonDropdownPlaceholder")]
+        public string DiscordCommandTvRepairSeasonDropdownPlaceholder { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.EpisodeDropdown")]
+        public string DiscordCommandTvRepairEpisodeDropdown { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.EpisodeDropdownPlaceholder")]
+        public string DiscordCommandTvRepairEpisodeDropdownPlaceholder { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.EpisodeDropdownTruncated")]
+        public string DiscordCommandTvRepairEpisodeDropdownTruncated { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.WholeSeasonOption")]
+        public string DiscordCommandTvRepairWholeSeasonOption { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.NoFiles")]
+        public string DiscordCommandTvRepairNoFiles { get; set; }
+
+        [JsonProperty("Discord.Command.Tv.Repair.NoFilesInSeason")]
+        public string DiscordCommandTvRepairNoFilesInSeason { get; set; }
+
     }
 }

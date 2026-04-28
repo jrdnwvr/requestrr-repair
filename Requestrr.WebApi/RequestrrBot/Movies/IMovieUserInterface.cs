@@ -20,5 +20,13 @@ namespace Requestrr.WebApi.RequestrrBot.Movies
         Task WarnMovieAlreadyRequestedAsync(Movie movie);
         Task DisplayNotificationSuccessAsync(Movie movie);
         Task AskForNotificationRequestAsync(Movie movie);
+
+        // /repair workflow methods
+        Task ShowMovieRepairSelection(MovieRequest request, IReadOnlyList<Movie> movies);
+        Task DisplayMovieRepairConfirmationAsync(MovieRequest request, Movie movie, bool deleteFiles);
+        Task DisplayMovieRepairSuccessAsync(Movie movie, MovieRepairResult result);
+        Task DisplayMovieRepairFailedAsync(Movie movie, MovieRepairResult result);
+        Task DisplayMovieRepairCancelledAsync(Movie movie);
+        Task WarnRepairDisabledAsync();
     }
 }

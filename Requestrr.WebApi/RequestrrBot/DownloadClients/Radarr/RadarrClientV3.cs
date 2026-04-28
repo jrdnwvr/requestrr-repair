@@ -14,7 +14,7 @@ using static Requestrr.WebApi.RequestrrBot.DownloadClients.Radarr.RadarrClient;
 
 namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Radarr
 {
-    public class RadarrClientV3 : IMovieRequester, IMovieSearcher
+    public class RadarrClientV3 : IMovieRequester, IMovieSearcher, IMovieRepairer
     {
         private IHttpClientFactory _httpClientFactory;
         private readonly ILogger<RadarrClient> _logger;
@@ -341,6 +341,128 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Radarr
             }
         }
 
+        public async Task<IReadOnlyList<Movie>> SearchExistingMovieAsync(MovieRequest request, string movieName)
+        {
+            try
+            {
+                // /movie returns ALL existing movies in the library; filter by title client-side.
+                var response = await HttpGetAsync($"{BaseURL}/movie");
+                await response.ThrowIfNotSuccessfulAsync("RadarrGetAllMovies failed", x => x.error);
+
+                var jsonResponse = await response.Content.ReadAsStringAsync();
+                var jsonMovies = JsonConvert.DeserializeObject<List<JSONMovie>>(jsonResponse);
+
+                var search = (movieName ?? string.Empty).Trim();
+                var matches = jsonMovies
+                    .Where(x => x.movieFile != null) // only movies with an existing file are eligible for repair
+                    .Where(x => !string.IsNullOrWhiteSpace(x.title) && x.title.Contains(search, StringComparison.InvariantCultureIgnoreCase))
+                    .ToArray();
+
+                return matches.Select(x => Convert(x)).ToArray();
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while searching existing movies for repair with Radarr: " + ex.Message);
+            }
+
+            return Array.Empty<Movie>();
+        }
+
+        public async Task<Movie> SearchExistingMovieAsync(MovieRequest request, int theMovieDbId)
+        {
+            try
+            {
+                var existing = await FindExistingMovieByMovieDbIdAsync(theMovieDbId);
+                if (existing == null || existing.movieFile == null)
+                    return null;
+
+                return Convert(existing);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while looking up existing movie {theMovieDbId} for repair with Radarr: " + ex.Message);
+            }
+
+            return null;
+        }
+
+        public async Task<MovieRepairResult> RepairMovieAsync(MovieRequest request, Movie movie, bool deleteFiles)
+        {
+            var result = new MovieRepairResult();
+
+            try
+            {
+                if (string.IsNullOrEmpty(movie.DownloadClientId))
+                {
+                    result.Success = false;
+                    result.ErrorMessage = "Movie is not present in Radarr.";
+                    return result;
+                }
+
+                int radarrMovieId = int.Parse(movie.DownloadClientId);
+
+                if (deleteFiles)
+                {
+                    // Fetch the movie to retrieve its movieFile.id (single movieFile per movie).
+                    var getResponse = await HttpGetAsync($"{BaseURL}/movie/{radarrMovieId}");
+                    if (!getResponse.IsSuccessStatusCode)
+                    {
+                        result.Success = false;
+                        result.ErrorMessage = $"Could not fetch movie {radarrMovieId} from Radarr.";
+                        return result;
+                    }
+
+                    var movieJson = await getResponse.Content.ReadAsStringAsync();
+                    dynamic radarrMovie = JObject.Parse(movieJson);
+
+                    int? movieFileId = null;
+                    try
+                    {
+                        if (radarrMovie.movieFile != null && radarrMovie.movieFile.id != null)
+                            movieFileId = (int)radarrMovie.movieFile.id;
+                    }
+                    catch { /* missing */ }
+
+                    if (movieFileId.HasValue && movieFileId.Value > 0)
+                    {
+                        var deleteResponse = await HttpDeleteAsync($"{BaseURL}/moviefile/{movieFileId.Value}");
+                        if (!deleteResponse.IsSuccessStatusCode)
+                        {
+                            result.Success = false;
+                            result.ErrorMessage = $"Failed to delete movie file {movieFileId.Value} (HTTP {(int)deleteResponse.StatusCode}).";
+                            return result;
+                        }
+
+                        result.FilesDeleted = 1;
+                    }
+                }
+
+                var searchResponse = await HttpPostAsync($"{BaseURL}/command", JsonConvert.SerializeObject(new
+                {
+                    name = "MoviesSearch",
+                    movieIds = new[] { radarrMovieId },
+                }));
+
+                if (!searchResponse.IsSuccessStatusCode)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = $"Failed to trigger Radarr movie search (HTTP {(int)searchResponse.StatusCode}).";
+                    return result;
+                }
+
+                result.SearchTriggered = true;
+                result.Success = true;
+                return result;
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while repairing movie \"{movie?.Title}\" with Radarr: " + ex.Message);
+                result.Success = false;
+                result.ErrorMessage = ex.Message;
+                return result;
+            }
+        }
+
         private Movie Convert(JSONMovie jsonMovie)
         {
             var isDownloaded = jsonMovie.downloaded.HasValue ? jsonMovie.downloaded.Value : jsonMovie.movieFile != null;
@@ -450,6 +572,19 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Radarr
 
             var client = _httpClientFactory.CreateClient();
             return await client.PutAsync(url, putRequest);
+        }
+
+        private async Task<HttpResponseMessage> HttpDeleteAsync(string url)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Delete, url);
+            request.Headers.Add("Accept", "application/json");
+            request.Headers.Add("X-Api-Key", RadarrSettings.ApiKey);
+
+            var client = _httpClientFactory.CreateClient();
+            using (var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5)))
+            {
+                return await client.SendAsync(request, cts.Token);
+            }
         }
 
         private static string GetBaseURL(RadarrSettings settings)

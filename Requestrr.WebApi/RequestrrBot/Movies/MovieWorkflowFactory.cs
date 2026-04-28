@@ -21,19 +21,38 @@ namespace Requestrr.WebApi.RequestrrBot.Movies
         private OverseerrClient _overseerrClient;
         private OmbiClient _ombiDownloadClient;
         private RadarrClient _radarrDownloadClient;
+        private RepairSettingsProvider _repairSettingsProvider;
 
         public MovieWorkflowFactory(
             DiscordSettingsProvider settingsProvider,
             MovieNotificationsRepository notificationsRepository,
             OverseerrClient overseerrClient,
             OmbiClient ombiDownloadClient,
-            RadarrClient radarrDownloadClient)
+            RadarrClient radarrDownloadClient,
+            RepairSettingsProvider repairSettingsProvider = null)
         {
             _settingsProvider = settingsProvider;
             _notificationsRepository = notificationsRepository;
             _overseerrClient = overseerrClient;
             _ombiDownloadClient = ombiDownloadClient;
             _radarrDownloadClient = radarrDownloadClient;
+            _repairSettingsProvider = repairSettingsProvider;
+        }
+
+        public MovieRepairWorkflow CreateRepairWorkflow(DiscordInteraction interaction, int categoryId)
+        {
+            var settings = _settingsProvider.Provide();
+            var searcher = GetMovieClient<IMovieSearcher>(settings);
+            var repairer = settings.MovieDownloadClient == DownloadClient.Radarr ? (IMovieRepairer)_radarrDownloadClient : null;
+            var repairSettings = _repairSettingsProvider != null ? _repairSettingsProvider.Provide() : new RepairSettings();
+
+            return new MovieRepairWorkflow(
+                new MovieUserRequester(interaction.User.Id.ToString(), interaction.User.Username),
+                categoryId,
+                searcher,
+                repairer,
+                new DiscordMovieUserInterface(interaction, searcher),
+                repairSettings);
         }
 
         public MovieRequestingWorkflow CreateRequestingWorkflow(DiscordInteraction interaction, int categoryId)

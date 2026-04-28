@@ -14,6 +14,7 @@ Requestrr is a chatbot used to simplify using services like Sonarr/Radarr/Lidarr
 ### Features
 
 - Ability to request content via Discord using slash commands, buttons and more!
+- `/repair movie` and `/repair tv` slash commands let users re-download a broken file already in their library (Radarr / Sonarr only). Disabled by default — opt in by setting `Repair.Enabled` to `true` in `config/settings.json`. The non-English locale files use the English strings as a fallback for the new /repair messages.
 - Users can get notified when their requests complete
 - Sonarr (V2-V4) & Radarr (V2-V5) integration with support for multiple instance via Overseerr (only for 4k/1080p)
 - Lidarr (V1-V2) intergration

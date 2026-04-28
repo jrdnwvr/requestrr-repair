@@ -24,6 +24,18 @@ namespace Requestrr.WebApi.RequestrrBot.TvShows
         Task WarnAlreadyNotifiedForSeasonsAsync(TvShow tvShow, TvSeason selectedSeason);
         Task AskForSeasonNotificationRequestAsync(TvShow tvShow, TvSeason selectedSeason);
         Task DisplayNotificationSuccessForSeasonAsync(TvShow tvShow, TvSeason selectedSeason);
+
+        // /repair workflow methods
+        Task ShowTvShowRepairSelection(TvShowRequest request, IReadOnlyList<SearchedTvShow> searchedTvShows, int? seasonNumber, int? episodeNumber);
+        Task ShowSeasonSelectionForRepairAsync(TvShowRequest request, TvShow tvShow, IReadOnlyList<int> seasons);
+        Task ShowEpisodeSelectionForRepairAsync(TvShowRequest request, TvShow tvShow, int seasonNumber, IReadOnlyList<RepairableEpisode> episodes);
+        Task DisplayTvShowRepairConfirmationAsync(TvShowRequest request, TvShow tvShow, int? seasonNumber, int? episodeNumber, bool deleteFiles);
+        Task DisplayTvShowRepairSuccessAsync(TvShow tvShow, int? seasonNumber, int? episodeNumber, TvShowRepairResult result);
+        Task DisplayTvShowRepairFailedAsync(TvShow tvShow, int? seasonNumber, int? episodeNumber, TvShowRepairResult result);
+        Task DisplayTvShowRepairCancelledAsync(TvShow tvShow, int? seasonNumber, int? episodeNumber);
+        Task WarnRepairNoFilesAsync(TvShow tvShow);
+        Task WarnRepairNoFilesInSeasonAsync(TvShow tvShow, int seasonNumber);
+        Task WarnRepairDisabledAsync();
     }
 
     public class TvShowSelection

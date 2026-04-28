@@ -21,6 +21,7 @@ namespace Requestrr.WebApi.RequestrrBot.TvShows
         private OverseerrClient _overseerrClient;
         private OmbiClient _ombiDownloadClient;
         private SonarrClient _sonarrDownloadClient;
+        private RepairSettingsProvider _repairSettingsProvider;
 
         public TvShowWorkflowFactory(
             TvShowsSettingsProvider tvShowsSettingsProvider,
@@ -28,7 +29,8 @@ namespace Requestrr.WebApi.RequestrrBot.TvShows
             TvShowNotificationsRepository notificationsRepository,
             OverseerrClient overseerrClient,
             OmbiClient ombiDownloadClient,
-            SonarrClient radarrDownloadClient)
+            SonarrClient radarrDownloadClient,
+            RepairSettingsProvider repairSettingsProvider = null)
         {
             _tvShowsSettingsProvider = tvShowsSettingsProvider;
             _settingsProvider = settingsProvider;
@@ -36,6 +38,25 @@ namespace Requestrr.WebApi.RequestrrBot.TvShows
             _overseerrClient = overseerrClient;
             _ombiDownloadClient = ombiDownloadClient;
             _sonarrDownloadClient = radarrDownloadClient;
+            _repairSettingsProvider = repairSettingsProvider;
+        }
+
+        public TvShowRepairWorkflow CreateRepairWorkflow(DiscordInteraction interaction, int categoryId, int? seasonNumber = null, int? episodeNumber = null)
+        {
+            var settings = _settingsProvider.Provide();
+            var searcher = GetTvShowClient<ITvShowSearcher>(settings);
+            var repairer = settings.TvShowDownloadClient == DownloadClient.Sonarr ? (ITvShowRepairer)_sonarrDownloadClient : null;
+            var repairSettings = _repairSettingsProvider != null ? _repairSettingsProvider.Provide() : new RepairSettings();
+
+            return new TvShowRepairWorkflow(
+                new TvShowUserRequester(interaction.User.Id.ToString(), interaction.User.Username),
+                categoryId,
+                searcher,
+                repairer,
+                new DiscordTvShowUserInterface(interaction),
+                repairSettings,
+                seasonNumber,
+                episodeNumber);
         }
 
         public TvShowRequestingWorkflow CreateRequestingWorkflow(DiscordInteraction interaction, int categoryId)

@@ -14,7 +14,7 @@ using static Requestrr.WebApi.RequestrrBot.DownloadClients.Sonarr.SonarrClient;
 
 namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Sonarr
 {
-    public class SonarrClientV2 : ITvShowSearcher, ITvShowRequester
+    public class SonarrClientV2 : ITvShowSearcher, ITvShowRequester, ITvShowRepairer
     {
         private IHttpClientFactory _httpClientFactory;
         private readonly ILogger<SonarrClient> _logger;
@@ -769,5 +769,31 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Sonarr
         {
             public int? thetvdb { get; set; }
         }
+
+        public Task<IReadOnlyList<SearchedTvShow>> SearchExistingTvShowAsync(TvShowRequest request, string tvShowName)
+        {
+            return Task.FromResult<IReadOnlyList<SearchedTvShow>>(System.Array.Empty<SearchedTvShow>());
+        }
+
+        public Task<SearchedTvShow> SearchExistingTvShowAsync(TvShowRequest request, int theTvDbId)
+        {
+            return Task.FromResult<SearchedTvShow>(null);
+        }
+
+        public Task<TvShowRepairResult> RepairTvShowAsync(TvShowRequest request, int theTvDbId, int? seasonNumber, int? episodeNumber, bool deleteFiles)
+        {
+            return Task.FromResult(new TvShowRepairResult { Success = false, ErrorMessage = "Repair is not supported on Sonarr v2." });
+        }
+
+        public Task<IReadOnlyList<int>> GetSeasonsWithFilesAsync(TvShowRequest request, int theTvDbId)
+        {
+            return Task.FromResult<IReadOnlyList<int>>(System.Array.Empty<int>());
+        }
+
+        public Task<IReadOnlyList<RepairableEpisode>> GetEpisodesWithFilesAsync(TvShowRequest request, int theTvDbId, int seasonNumber)
+        {
+            return Task.FromResult<IReadOnlyList<RepairableEpisode>>(System.Array.Empty<RepairableEpisode>());
+        }
+
     }
 }

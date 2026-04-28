@@ -7,7 +7,7 @@ using Requestrr.WebApi.RequestrrBot.TvShows;
 
 namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Sonarr
 {
-    public class SonarrClient : ITvShowSearcher, ITvShowRequester
+    public class SonarrClient : ITvShowSearcher, ITvShowRequester, ITvShowRepairer
     {
         private IHttpClientFactory _httpClientFactory;
         private readonly ILogger<SonarrClient> _logger;
@@ -133,6 +133,31 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Sonarr
         public Task<TvShowRequestResult> RequestTvShowAsync(TvShowRequest request, TvShow tvShow, TvSeason season)
         {
             return CreateInstance<ITvShowRequester>().RequestTvShowAsync(request, tvShow, season);
+        }
+
+        public Task<IReadOnlyList<SearchedTvShow>> SearchExistingTvShowAsync(TvShowRequest request, string tvShowName)
+        {
+            return CreateInstance<ITvShowRepairer>().SearchExistingTvShowAsync(request, tvShowName);
+        }
+
+        public Task<SearchedTvShow> SearchExistingTvShowAsync(TvShowRequest request, int theTvDbId)
+        {
+            return CreateInstance<ITvShowRepairer>().SearchExistingTvShowAsync(request, theTvDbId);
+        }
+
+        public Task<TvShowRepairResult> RepairTvShowAsync(TvShowRequest request, int theTvDbId, int? seasonNumber, int? episodeNumber, bool deleteFiles)
+        {
+            return CreateInstance<ITvShowRepairer>().RepairTvShowAsync(request, theTvDbId, seasonNumber, episodeNumber, deleteFiles);
+        }
+
+        public Task<IReadOnlyList<int>> GetSeasonsWithFilesAsync(TvShowRequest request, int theTvDbId)
+        {
+            return CreateInstance<ITvShowRepairer>().GetSeasonsWithFilesAsync(request, theTvDbId);
+        }
+
+        public Task<IReadOnlyList<RepairableEpisode>> GetEpisodesWithFilesAsync(TvShowRequest request, int theTvDbId, int seasonNumber)
+        {
+            return CreateInstance<ITvShowRepairer>().GetEpisodesWithFilesAsync(request, theTvDbId, seasonNumber);
         }
 
         private T CreateInstance<T>() where T : class

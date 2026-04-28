@@ -14,7 +14,7 @@ using static Requestrr.WebApi.RequestrrBot.DownloadClients.Radarr.RadarrClient;
 
 namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Radarr
 {
-    public class RadarrClientV2 : IMovieRequester, IMovieSearcher
+    public class RadarrClientV2 : IMovieRequester, IMovieSearcher, IMovieRepairer
     {
         private IHttpClientFactory _httpClientFactory;
         private readonly ILogger<RadarrClient> _logger;
@@ -478,5 +478,21 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Radarr
             public TheMovieDbMovieGenre[] genres { get; set; }
             public bool IsAnime => original_language.Equals("ja", StringComparison.InvariantCultureIgnoreCase) && (genres?.Any(x => x.name.Equals("animation", StringComparison.InvariantCultureIgnoreCase)) ?? false);
         }
+
+        public Task<IReadOnlyList<Movie>> SearchExistingMovieAsync(MovieRequest request, string movieName)
+        {
+            return Task.FromResult<IReadOnlyList<Movie>>(System.Array.Empty<Movie>());
+        }
+
+        public Task<Movie> SearchExistingMovieAsync(MovieRequest request, int theMovieDbId)
+        {
+            return Task.FromResult<Movie>(null);
+        }
+
+        public Task<MovieRepairResult> RepairMovieAsync(MovieRequest request, Movie movie, bool deleteFiles)
+        {
+            return Task.FromResult(new MovieRepairResult { Success = false, ErrorMessage = "Repair is not supported on Radarr v2." });
+        }
+
     }
 }

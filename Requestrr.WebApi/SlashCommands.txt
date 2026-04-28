@@ -280,5 +280,65 @@ namespace Requestrr.WebApi.RequestrrBot
             [ISSUE_TV_COMMAND_END]
         }
         [ISSUE_COMMAND_END]
+
+
+        [REPAIR_COMMAND_START]
+        [SlashCommandGroup("[REPAIR_GROUP_NAME]", "[REPAIR_GROUP_DESCRIPTION]")]
+        public class RepairGroup : ApplicationCommandModule
+        {
+            private readonly IServiceProvider _serviceProvider;
+            private readonly ILogger _logger;
+
+            public RepairGroup(IServiceProvider serviceProvider)
+            {
+                _serviceProvider = serviceProvider;
+                _logger = _serviceProvider.Get<ILogger>();
+            }
+
+            [REPAIR_MOVIE_COMMAND_START]
+            [SlashCommand("[REPAIR_MOVIE_NAME]", "[REPAIR_MOVIE_DESCRIPTION]")]
+            [RequireRoles(new ulong[] { [REQUIRED_REPAIR_ROLE_IDS] })]
+            [RequireChannels(new ulong[] { [REQUIRED_CHANNEL_IDS] })]
+            public async Task RepairMovie(InteractionContext ctx, [Option("[REPAIR_MOVIE_TITLE_OPTION_NAME]", "[REPAIR_MOVIE_TITLE_OPTION_DESCRIPTION]")] string movieTitle)
+            {
+                try
+                {
+                    var settings = _serviceProvider.Get<DiscordSettingsProvider>().Provide();
+                    await ctx.CreateResponseAsync(InteractionResponseType.ChannelMessageWithSource, new DiscordInteractionResponseBuilder().AsEphemeral(settings.AutomaticallyPurgeCommandMessages).WithContent(Language.Current.DiscordCommandSending));
+
+                    var workFlow = _serviceProvider.Get<MovieWorkflowFactory>().CreateRepairWorkflow(ctx.Interaction, [REPAIR_MOVIE_CATEGORY_ID]);
+                    await workFlow.SearchExistingMovieAsync(movieTitle.Trim());
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.LogError(ex, $"Error while repairing movie {movieTitle}: " + ex.Message);
+                }
+            }
+            [REPAIR_MOVIE_COMMAND_END]
+
+            [REPAIR_TV_COMMAND_START]
+            [SlashCommand("[REPAIR_TV_NAME]", "[REPAIR_TV_DESCRIPTION]")]
+            [RequireRoles(new ulong[] { [REQUIRED_REPAIR_ROLE_IDS] })]
+            [RequireChannels(new ulong[] { [REQUIRED_CHANNEL_IDS] })]
+            public async Task RepairTv(InteractionContext ctx, [Option("[REPAIR_TV_TITLE_OPTION_NAME]", "[REPAIR_TV_TITLE_OPTION_DESCRIPTION]")] string tvShowTitle, [Option("[REPAIR_TV_SEASON_OPTION_NAME]", "[REPAIR_TV_SEASON_OPTION_DESCRIPTION]")] long seasonNumber = -1, [Option("[REPAIR_TV_EPISODE_OPTION_NAME]", "[REPAIR_TV_EPISODE_OPTION_DESCRIPTION]")] long episodeNumber = -1)
+            {
+                try
+                {
+                    var settings = _serviceProvider.Get<DiscordSettingsProvider>().Provide();
+                    await ctx.CreateResponseAsync(InteractionResponseType.ChannelMessageWithSource, new DiscordInteractionResponseBuilder().AsEphemeral(settings.AutomaticallyPurgeCommandMessages).WithContent(Language.Current.DiscordCommandSending));
+
+                    int? sn = seasonNumber > 0 ? (int?)seasonNumber : null;
+                    int? en = episodeNumber > 0 ? (int?)episodeNumber : null;
+                    var workFlow = _serviceProvider.Get<TvShowWorkflowFactory>().CreateRepairWorkflow(ctx.Interaction, [REPAIR_TV_CATEGORY_ID], sn, en);
+                    await workFlow.SearchExistingTvShowAsync(tvShowTitle.Trim());
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.LogError(ex, $"Error while repairing tv show {tvShowTitle}: " + ex.Message);
+                }
+            }
+            [REPAIR_TV_COMMAND_END]
+        }
+        [REPAIR_COMMAND_END]
     }
 }

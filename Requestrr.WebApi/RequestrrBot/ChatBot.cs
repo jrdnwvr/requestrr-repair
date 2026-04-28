@@ -67,8 +67,8 @@ namespace Requestrr.WebApi.RequestrrBot
             _radarrDownloadClient = new RadarrClient(serviceProvider.Get<IHttpClientFactory>(), serviceProvider.Get<ILogger<RadarrClient>>(), serviceProvider.Get<RadarrSettingsProvider>());
             _sonarrDownloadClient = new SonarrClient(serviceProvider.Get<IHttpClientFactory>(), serviceProvider.Get<ILogger<SonarrClient>>(), serviceProvider.Get<SonarrSettingsProvider>());
             _lidarrDownloadClient = new LidarrClient(serviceProvider.Get<IHttpClientFactory>(), serviceProvider.Get<ILogger<LidarrClient>>(), serviceProvider.Get<LidarrSettingsProvider>());
-            _movieWorkflowFactory = new MovieWorkflowFactory(_discordSettingsProvider, _movieNotificationRepository, _overseerrClient, _ombiDownloadClient, _radarrDownloadClient);
-            _tvShowWorkflowFactory = new TvShowWorkflowFactory(serviceProvider.Get<TvShowsSettingsProvider>(), _discordSettingsProvider, _tvShowNotificationRepository, _overseerrClient, _ombiDownloadClient, _sonarrDownloadClient);
+            _movieWorkflowFactory = new MovieWorkflowFactory(_discordSettingsProvider, _movieNotificationRepository, _overseerrClient, _ombiDownloadClient, _radarrDownloadClient, serviceProvider.Get<RepairSettingsProvider>());
+            _tvShowWorkflowFactory = new TvShowWorkflowFactory(serviceProvider.Get<TvShowsSettingsProvider>(), _discordSettingsProvider, _tvShowNotificationRepository, _overseerrClient, _ombiDownloadClient, _sonarrDownloadClient, serviceProvider.Get<RepairSettingsProvider>());
             _musicWorkflowFactory = new MusicWorkflowFactory(_discordSettingsProvider, _musicNotificationRepository, _lidarrDownloadClient);
         }
 
@@ -213,7 +213,7 @@ namespace Requestrr.WebApi.RequestrrBot
                             var prop = _slashCommands.GetType().GetProperty("_updateList", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
                             prop.SetValue(_slashCommands, new List<KeyValuePair<ulong?, Type>>());
 
-                            var slashCommandType = SlashCommandBuilder.Build(_logger, newSettings, _serviceProvider.Get<RadarrSettingsProvider>(), _serviceProvider.Get<SonarrSettingsProvider>(), _serviceProvider.Get<OverseerrSettingsProvider>(), _serviceProvider.Get<OmbiSettingsProvider>(), _serviceProvider.Get<LidarrSettingsProvider>());
+                            var slashCommandType = SlashCommandBuilder.Build(_logger, newSettings, _serviceProvider.Get<RadarrSettingsProvider>(), _serviceProvider.Get<SonarrSettingsProvider>(), _serviceProvider.Get<OverseerrSettingsProvider>(), _serviceProvider.Get<OmbiSettingsProvider>(), _serviceProvider.Get<LidarrSettingsProvider>(), _serviceProvider.Get<RepairSettingsProvider>());
 
                             if (newSettings.EnableRequestsThroughDirectMessages)
                             {
@@ -417,6 +417,14 @@ namespace Requestrr.WebApi.RequestrrBot
                     {
                         await CreateMusicNotificationWorkflow(e)
                             .AddNotificationArtistAsync(e.Id.Split("/").Skip(1).First(), e.Id.Split("/").Last());
+                    }
+                    else if (e.Id.ToLower().StartsWith("rpm"))
+                    {
+                        await HandleMovieRepairAsync(e);
+                    }
+                    else if (e.Id.ToLower().StartsWith("rpt"))
+                    {
+                        await HandleTvShowRepairAsync(e);
                     }
                 }
             }
@@ -795,5 +803,128 @@ namespace Requestrr.WebApi.RequestrrBot
             return _tvShowWorkflowFactory
                 .CreateNotificationWorkflow(e.Interaction);
         }
+
+        /// <summary>
+        /// Handles button + dropdown component callbacks for the movie /repair flow.
+        /// Custom ID layouts:
+        ///   RPMS/{userId}/{categoryId}            (selection dropdown — value = "{categoryId}/{tmdbId}")
+        ///   RPMC/{userId}/{categoryId}/{tmdbId}   (confirm button)
+        ///   RPMX/{userId}/{categoryId}/{tmdbId}   (cancel button)
+        /// </summary>
+        private async Task HandleMovieRepairAsync(ComponentInteractionCreateEventArgs e)
+        {
+            if (e.Id.ToLower().StartsWith("rpms"))
+            {
+                if (e.Values != null && e.Values.Any())
+                {
+                    string[] values = e.Values.Single().Split("/");
+                    int categoryId = int.Parse(values[0]);
+                    int tmdb = int.Parse(values[1]);
+                    await CreateMovieRepairWorkFlow(e, categoryId).HandleSelectionAsync(tmdb);
+                }
+            }
+            else if (e.Id.ToLower().StartsWith("rpmc"))
+            {
+                string[] values = e.Id.Split("/");
+                int categoryId = int.Parse(values[2]);
+                int tmdb = int.Parse(values[3]);
+                await CreateMovieRepairWorkFlow(e, categoryId).ConfirmRepairAsync(tmdb);
+            }
+            else if (e.Id.ToLower().StartsWith("rpmx"))
+            {
+                string[] values = e.Id.Split("/");
+                int categoryId = int.Parse(values[2]);
+                int tmdb = int.Parse(values[3]);
+                await CreateMovieRepairWorkFlow(e, categoryId).CancelAsync(tmdb);
+            }
+        }
+
+        /// <summary>
+        /// Handles button + dropdown component callbacks for the TV /repair flow.
+        /// Custom ID layouts:
+        ///   RPTS/{userId}/{categoryId}                              (show-selection dropdown — value = "{categoryId}/{tvDbId}/{season}/{episode}")
+        ///   RPTSE/{userId}/{categoryId}/{tvDbId}                    (season-picker dropdown — value = "{categoryId}/{tvDbId}/{seasonNumber}")
+        ///   RPTEE/{userId}/{categoryId}/{tvDbId}/{seasonNumber}     (episode-picker dropdown — value = "{categoryId}/{tvDbId}/{seasonNumber}/{episodeNumber|ALL}")
+        ///   RPTC/{userId}/{categoryId}/{tvDbId}/{season}/{episode}  (confirm button)
+        ///   RPTX/{userId}/{categoryId}/{tvDbId}/{season}/{episode}  (cancel button)
+        /// season/episode use -1 to mean "not set".
+        /// </summary>
+        private async Task HandleTvShowRepairAsync(ComponentInteractionCreateEventArgs e)
+        {
+            // NOTE: order matters — longer prefixes (RPTSE, RPTEE) must be checked before shorter ones (RPTS).
+            if (e.Id.ToLower().StartsWith("rptse"))
+            {
+                if (e.Values != null && e.Values.Any())
+                {
+                    string[] values = e.Values.Single().Split("/");
+                    int categoryId = int.Parse(values[0]);
+                    int tvDbId = int.Parse(values[1]);
+                    int seasonNumber = int.Parse(values[2]);
+
+                    await CreateTvShowRepairWorkFlow(e, categoryId, null, null).HandleSeasonSelectionAsync(tvDbId, seasonNumber);
+                }
+                return;
+            }
+            else if (e.Id.ToLower().StartsWith("rptee"))
+            {
+                if (e.Values != null && e.Values.Any())
+                {
+                    string[] values = e.Values.Single().Split("/");
+                    int categoryId = int.Parse(values[0]);
+                    int tvDbId = int.Parse(values[1]);
+                    int seasonNumber = int.Parse(values[2]);
+                    int? episodeNumber = null;
+                    if (values.Length > 3 && !string.Equals(values[3], "ALL", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (int.TryParse(values[3], out var en) && en > 0) episodeNumber = en;
+                    }
+
+                    await CreateTvShowRepairWorkFlow(e, categoryId, seasonNumber, episodeNumber).HandleEpisodeSelectionAsync(tvDbId, seasonNumber, episodeNumber);
+                }
+                return;
+            }
+            else if (e.Id.ToLower().StartsWith("rpts"))
+            {
+                if (e.Values != null && e.Values.Any())
+                {
+                    string[] values = e.Values.Single().Split("/");
+                    int categoryId = int.Parse(values[0]);
+                    int tvDbId = int.Parse(values[1]);
+                    int? season = values.Length > 2 && int.TryParse(values[2], out var sn) && sn > 0 ? (int?)sn : null;
+                    int? episode = values.Length > 3 && int.TryParse(values[3], out var en) && en > 0 ? (int?)en : null;
+
+                    await CreateTvShowRepairWorkFlow(e, categoryId, season, episode).HandleSelectionAsync(tvDbId);
+                }
+            }
+            else if (e.Id.ToLower().StartsWith("rptc"))
+            {
+                string[] values = e.Id.Split("/");
+                int categoryId = int.Parse(values[2]);
+                int tvDbId = int.Parse(values[3]);
+                int? season = values.Length > 4 && int.TryParse(values[4], out var sn) && sn > 0 ? (int?)sn : null;
+                int? episode = values.Length > 5 && int.TryParse(values[5], out var en) && en > 0 ? (int?)en : null;
+                await CreateTvShowRepairWorkFlow(e, categoryId, season, episode).ConfirmRepairAsync(tvDbId, season, episode);
+            }
+            else if (e.Id.ToLower().StartsWith("rptx"))
+            {
+                string[] values = e.Id.Split("/");
+                int categoryId = int.Parse(values[2]);
+                int tvDbId = int.Parse(values[3]);
+                int? season = values.Length > 4 && int.TryParse(values[4], out var sn) && sn > 0 ? (int?)sn : null;
+                int? episode = values.Length > 5 && int.TryParse(values[5], out var en) && en > 0 ? (int?)en : null;
+                await CreateTvShowRepairWorkFlow(e, categoryId, season, episode).CancelAsync(tvDbId, season, episode);
+            }
+        }
+
+        private MovieRepairWorkflow CreateMovieRepairWorkFlow(ComponentInteractionCreateEventArgs e, int categoryId)
+        {
+            return _movieWorkflowFactory.CreateRepairWorkflow(e.Interaction, categoryId);
+        }
+
+        private TvShowRepairWorkflow CreateTvShowRepairWorkFlow(ComponentInteractionCreateEventArgs e, int categoryId, int? season, int? episode)
+        {
+            return _tvShowWorkflowFactory.CreateRepairWorkflow(e.Interaction, categoryId, season, episode);
+        }
+
     }
 }

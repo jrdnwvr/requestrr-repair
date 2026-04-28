@@ -308,5 +308,83 @@ namespace Requestrr.WebApi.RequestrrBot.ChatClients.Discord
 
             return builder;
         }
+
+        // ----- /repair flow -----
+
+        public async Task ShowMovieRepairSelection(MovieRequest request, IReadOnlyList<Movie> movies)
+        {
+            await MovieSelection("RPMS", request, movies);
+        }
+
+        public async Task DisplayMovieRepairConfirmationAsync(MovieRequest request, Movie movie, bool deleteFiles)
+        {
+            var confirmButton = new DiscordButtonComponent(ButtonStyle.Danger, $"RPMC/{_interactionContext.User.Id}/{request.CategoryId}/{movie.TheMovieDbId}", Language.Current.DiscordCommandRepairConfirmButton ?? "Confirm Repair");
+            var cancelButton = new DiscordButtonComponent(ButtonStyle.Secondary, $"RPMX/{_interactionContext.User.Id}/{request.CategoryId}/{movie.TheMovieDbId}", Language.Current.DiscordCommandRepairCancelButton ?? "Cancel");
+
+            var content = (Language.Current.DiscordCommandMovieRepairConfirm ?? "This will delete the existing file(s) for **[MovieTitle]** and trigger a fresh download. Continue?")
+                .ReplaceTokens(movie);
+
+            if (!deleteFiles)
+            {
+                content = (Language.Current.DiscordCommandMovieRepairConfirmNoDelete ?? "This will trigger a fresh search for **[MovieTitle]** without deleting the existing file. Continue?")
+                    .ReplaceTokens(movie);
+            }
+
+            var builder = (await AddPreviousDropdownsAsync(movie, new DiscordWebhookBuilder().AddEmbed(await GenerateMovieDetailsAsync(movie, _movieSearcher))))
+                .AddComponents(confirmButton, cancelButton)
+                .WithContent(content);
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+        public async Task DisplayMovieRepairSuccessAsync(Movie movie, MovieRepairResult result)
+        {
+            var doneButton = new DiscordButtonComponent(ButtonStyle.Success, $"0/1/0", Language.Current.DiscordCommandRepairDoneButton ?? "Repair queued", true);
+            var content = (Language.Current.DiscordCommandMovieRepairSuccess ?? "Started repair for **[MovieTitle]**. Sonarr/Radarr will grab a new copy shortly.")
+                .ReplaceTokens(movie);
+
+            var builder = (await AddPreviousDropdownsAsync(movie, new DiscordWebhookBuilder().AddEmbed(await GenerateMovieDetailsAsync(movie, _movieSearcher))))
+                .AddComponents(doneButton)
+                .WithContent(content);
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+        public async Task DisplayMovieRepairFailedAsync(Movie movie, MovieRepairResult result)
+        {
+            var doneButton = new DiscordButtonComponent(ButtonStyle.Danger, $"0/1/0", Language.Current.DiscordCommandRepairFailedButton ?? "Repair failed", true);
+            var template = Language.Current.DiscordCommandMovieRepairFailed ?? "Could not start repair for **[MovieTitle]**. [Error]";
+            var content = template.ReplaceTokens(movie).Replace("[Error]", result?.ErrorMessage ?? string.Empty);
+
+            var builder = (await AddPreviousDropdownsAsync(movie, new DiscordWebhookBuilder().AddEmbed(await GenerateMovieDetailsAsync(movie, _movieSearcher))))
+                .AddComponents(doneButton)
+                .WithContent(content);
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+        public async Task DisplayMovieRepairCancelledAsync(Movie movie)
+        {
+            var content = Language.Current.DiscordCommandMovieRepairCancelled ?? "Repair cancelled.";
+            var doneButton = new DiscordButtonComponent(ButtonStyle.Secondary, $"0/1/0", Language.Current.DiscordCommandRepairCancelButton ?? "Cancel", true);
+
+            DiscordWebhookBuilder builder;
+            if (movie != null)
+            {
+                builder = (await AddPreviousDropdownsAsync(movie, new DiscordWebhookBuilder().AddEmbed(await GenerateMovieDetailsAsync(movie, _movieSearcher))))
+                    .AddComponents(doneButton)
+                    .WithContent(content.ReplaceTokens(movie));
+            }
+            else
+            {
+                builder = new DiscordWebhookBuilder().AddComponents(doneButton).WithContent(content);
+            }
+
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+        public async Task WarnRepairDisabledAsync()
+        {
+            await _interactionContext.EditOriginalResponseAsync(new DiscordWebhookBuilder()
+                .WithContent(Language.Current.DiscordCommandRepairDisabled ?? "The /repair command is disabled in this server."));
+        }
+
     }
 }

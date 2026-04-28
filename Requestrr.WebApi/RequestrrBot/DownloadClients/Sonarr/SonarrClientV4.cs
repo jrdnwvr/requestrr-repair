@@ -14,7 +14,7 @@ using static Requestrr.WebApi.RequestrrBot.DownloadClients.Sonarr.SonarrClient;
 
 namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Sonarr
 {
-    public class SonarrClientV4 : ITvShowSearcher, ITvShowRequester
+    public class SonarrClientV4 : ITvShowSearcher, ITvShowRequester, ITvShowRepairer
     {
         private IHttpClientFactory _httpClientFactory;
         private readonly ILogger<SonarrClient> _logger;
@@ -623,6 +623,252 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Sonarr
             return false;
         }
 
+        public async Task<IReadOnlyList<SearchedTvShow>> SearchExistingTvShowAsync(TvShowRequest request, string tvShowName)
+        {
+            try
+            {
+                // /series returns ALL existing series in the library; filter client-side.
+                var response = await HttpGetAsync($"{BaseURL}/series");
+                await response.ThrowIfNotSuccessfulAsync("SonarrGetAllSeries failed", x => x.error);
+
+                var jsonResponse = await response.Content.ReadAsStringAsync();
+                var jsonShows = JsonConvert.DeserializeObject<List<JSONTvShow>>(jsonResponse)
+                    .Where(x => x.tvdbId.HasValue && x.id.HasValue)
+                    .ToArray();
+
+                var search = (tvShowName ?? string.Empty).Trim();
+
+                return jsonShows
+                    .Where(x => !string.IsNullOrWhiteSpace(x.title) && x.title.Contains(search, StringComparison.InvariantCultureIgnoreCase))
+                    .Select(x => new SearchedTvShow
+                    {
+                        TheTvDbId = x.tvdbId.Value,
+                        Title = x.title,
+                        FirstAired = x.year > 0 ? x.year.ToString() : string.Empty,
+                        Banner = (x.images != null ? x.images.FirstOrDefault(i => string.Equals(i.coverType, "poster", StringComparison.InvariantCultureIgnoreCase))?.remoteUrl : null) ?? string.Empty,
+                    })
+                    .ToArray();
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while searching existing TV shows for repair with Sonarr: " + ex.Message);
+            }
+
+            return Array.Empty<SearchedTvShow>();
+        }
+
+        public async Task<SearchedTvShow> SearchExistingTvShowAsync(TvShowRequest request, int theTvDbId)
+        {
+            try
+            {
+                var existing = await FindSeriesInSonarrAsync(theTvDbId);
+                if (existing == null || !existing.id.HasValue || existing.id.Value <= 0 || !existing.tvdbId.HasValue)
+                    return null;
+
+                return new SearchedTvShow
+                {
+                    TheTvDbId = existing.tvdbId.Value,
+                    Title = existing.title,
+                    FirstAired = existing.year > 0 ? existing.year.ToString() : string.Empty,
+                    Banner = (existing.images != null ? existing.images.FirstOrDefault(i => string.Equals(i.coverType, "poster", StringComparison.InvariantCultureIgnoreCase))?.remoteUrl : null) ?? string.Empty,
+                };
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while looking up existing TV show {theTvDbId} for repair with Sonarr: " + ex.Message);
+            }
+
+            return null;
+        }
+
+        public async Task<TvShowRepairResult> RepairTvShowAsync(TvShowRequest request, int theTvDbId, int? seasonNumber, int? episodeNumber, bool deleteFiles)
+        {
+            var result = new TvShowRepairResult();
+
+            try
+            {
+                var sonarrSeries = await FindSeriesInSonarrAsync(theTvDbId);
+                if (sonarrSeries == null || !sonarrSeries.id.HasValue || sonarrSeries.id.Value <= 0)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = "Series is not present in Sonarr.";
+                    return result;
+                }
+
+                int seriesId = sonarrSeries.id.Value;
+
+                // Pull all episodes (with files) for the series and decide which to delete.
+                var episodes = await GetSonarrEpisodesAsync(seriesId);
+                var allEpisodes = episodes.SelectMany(kv => kv.Value).ToArray();
+
+                IEnumerable<JSONEpisode> targetEpisodes;
+                if (episodeNumber.HasValue && seasonNumber.HasValue)
+                {
+                    targetEpisodes = allEpisodes.Where(e => e.seasonNumber == seasonNumber.Value && e.episodeNumber == episodeNumber.Value);
+                }
+                else if (seasonNumber.HasValue)
+                {
+                    targetEpisodes = allEpisodes.Where(e => e.seasonNumber == seasonNumber.Value);
+                }
+                else
+                {
+                    targetEpisodes = allEpisodes; // whole series
+                }
+
+                var episodesToRepair = targetEpisodes.ToArray();
+
+                if (deleteFiles)
+                {
+                    // Delete episode files for each episode that has one.
+                    foreach (var ep in episodesToRepair.Where(x => x.hasFile))
+                    {
+                        // We need the episodeFile id to delete; fetch via /episode/{id} which embeds episodeFileId.
+                        var epResponse = await HttpGetAsync($"{BaseURL}/episode/{ep.id}");
+                        if (!epResponse.IsSuccessStatusCode) continue;
+
+                        var epJson = await epResponse.Content.ReadAsStringAsync();
+                        dynamic episode = JObject.Parse(epJson);
+                        int? episodeFileId = null;
+                        try
+                        {
+                            if (episode.episodeFileId != null && (int)episode.episodeFileId > 0)
+                                episodeFileId = (int)episode.episodeFileId;
+                        }
+                        catch { /* missing */ }
+
+                        if (episodeFileId.HasValue)
+                        {
+                            var deleteResponse = await HttpDeleteAsync($"{BaseURL}/episodefile/{episodeFileId.Value}");
+                            if (deleteResponse.IsSuccessStatusCode)
+                                result.FilesDeleted++;
+                        }
+                    }
+                }
+
+                // Trigger the appropriate search command.
+                HttpResponseMessage searchResponse;
+                if (episodeNumber.HasValue && seasonNumber.HasValue)
+                {
+                    var ids = episodesToRepair.Select(e => e.id).ToArray();
+                    if (ids.Length == 0)
+                    {
+                        result.Success = false;
+                        result.ErrorMessage = "No matching episode found for repair.";
+                        return result;
+                    }
+
+                    searchResponse = await HttpPostAsync($"{BaseURL}/command", JsonConvert.SerializeObject(new
+                    {
+                        name = "EpisodeSearch",
+                        episodeIds = ids,
+                    }));
+                }
+                else if (seasonNumber.HasValue)
+                {
+                    searchResponse = await HttpPostAsync($"{BaseURL}/command", JsonConvert.SerializeObject(new
+                    {
+                        name = "SeasonSearch",
+                        seriesId = seriesId,
+                        seasonNumber = seasonNumber.Value,
+                    }));
+                }
+                else
+                {
+                    searchResponse = await HttpPostAsync($"{BaseURL}/command", JsonConvert.SerializeObject(new
+                    {
+                        name = "SeriesSearch",
+                        seriesId = seriesId,
+                    }));
+                }
+
+                if (!searchResponse.IsSuccessStatusCode)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = $"Failed to trigger Sonarr search (HTTP {(int)searchResponse.StatusCode}).";
+                    return result;
+                }
+
+                result.SearchTriggered = true;
+                result.Success = true;
+                return result;
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while repairing TV show tvDbId={theTvDbId} with Sonarr: " + ex.Message);
+                result.Success = false;
+                result.ErrorMessage = ex.Message;
+                return result;
+            }
+        }
+
+        public async Task<IReadOnlyList<int>> GetSeasonsWithFilesAsync(TvShowRequest request, int theTvDbId)
+        {
+            try
+            {
+                var sonarrSeries = await FindSeriesInSonarrAsync(theTvDbId);
+                if (sonarrSeries == null || !sonarrSeries.id.HasValue || sonarrSeries.id.Value <= 0)
+                    return Array.Empty<int>();
+
+                var episodes = await GetSonarrEpisodesAsync(sonarrSeries.id.Value);
+                var seasons = episodes
+                    .SelectMany(kv => kv.Value)
+                    .Where(e => e.hasFile && e.seasonNumber > 0)
+                    .Select(e => e.seasonNumber)
+                    .Distinct()
+                    .OrderBy(s => s)
+                    .ToArray();
+                return seasons;
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while listing repairable seasons for tvDbId={theTvDbId}: " + ex.Message);
+                return Array.Empty<int>();
+            }
+        }
+
+        public async Task<IReadOnlyList<RepairableEpisode>> GetEpisodesWithFilesAsync(TvShowRequest request, int theTvDbId, int seasonNumber)
+        {
+            try
+            {
+                var sonarrSeries = await FindSeriesInSonarrAsync(theTvDbId);
+                if (sonarrSeries == null || !sonarrSeries.id.HasValue || sonarrSeries.id.Value <= 0)
+                    return Array.Empty<RepairableEpisode>();
+
+                var episodes = await GetSonarrEpisodesAsync(sonarrSeries.id.Value);
+                if (!episodes.ContainsKey(seasonNumber))
+                    return Array.Empty<RepairableEpisode>();
+
+                return episodes[seasonNumber]
+                    .Where(e => e.hasFile)
+                    .OrderBy(e => e.episodeNumber)
+                    .Select(e => new RepairableEpisode
+                    {
+                        EpisodeNumber = e.episodeNumber,
+                        Title = e.title,
+                        AirDate = e.airDate,
+                    })
+                    .ToArray();
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while listing repairable episodes for tvDbId={theTvDbId} season={seasonNumber}: " + ex.Message);
+                return Array.Empty<RepairableEpisode>();
+            }
+        }
+
+        private async Task<HttpResponseMessage> HttpDeleteAsync(string url)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Delete, url);
+            request.Headers.Add("Accept", "application/json");
+            request.Headers.Add("X-Api-Key", SonarrSettings.ApiKey);
+
+            var client = _httpClientFactory.CreateClient();
+            using (var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5)))
+            {
+                return await client.SendAsync(request, cts.Token);
+            }
+        }
+
         private static string GetBaseURL(SonarrSettings settings)
         {
             var protocol = settings.UseSSL ? "https" : "http";
@@ -675,6 +921,8 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Sonarr
             public int episodeNumber { get; set; }
             public bool hasFile { get; set; }
             public bool monitored { get; set; }
+            public string title { get; set; }
+            public string airDate { get; set; }
         }
 
         private class JSONImage

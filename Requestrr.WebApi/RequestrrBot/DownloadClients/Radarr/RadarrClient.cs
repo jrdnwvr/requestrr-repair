@@ -6,7 +6,7 @@ using Requestrr.WebApi.RequestrrBot.Movies;
 
 namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Radarr
 {
-    public class RadarrClient : IMovieRequester, IMovieSearcher
+    public class RadarrClient : IMovieRequester, IMovieSearcher, IMovieRepairer
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<RadarrClient> _logger;
@@ -90,6 +90,21 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Radarr
         public Task<MovieRequestResult> RequestMovieAsync(MovieRequest request, Movie movie)
         {
             return CreateInstance<IMovieRequester>().RequestMovieAsync(request, movie);
+        }
+
+        public Task<IReadOnlyList<Movie>> SearchExistingMovieAsync(MovieRequest request, string movieName)
+        {
+            return CreateInstance<IMovieRepairer>().SearchExistingMovieAsync(request, movieName);
+        }
+
+        public Task<Movie> SearchExistingMovieAsync(MovieRequest request, int theMovieDbId)
+        {
+            return CreateInstance<IMovieRepairer>().SearchExistingMovieAsync(request, theMovieDbId);
+        }
+
+        public Task<MovieRepairResult> RepairMovieAsync(MovieRequest request, Movie movie, bool deleteFiles)
+        {
+            return CreateInstance<IMovieRepairer>().RepairMovieAsync(request, movie, deleteFiles);
         }
 
         private T CreateInstance<T>() where T : class

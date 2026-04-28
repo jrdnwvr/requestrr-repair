@@ -27,7 +27,7 @@ namespace Requestrr.WebApi.RequestrrBot
     {
         public enum CommandType
         {
-            Misc, Movie, Tv, IssueMovie, IssueTv, Music
+            Misc, Movie, Tv, IssueMovie, IssueTv, Music, Repair
         }
 
         private static Dictionary<CommandType, List<string>> _commandList = new Dictionary<CommandType, List<string>>();
@@ -39,9 +39,9 @@ namespace Requestrr.WebApi.RequestrrBot
 
         public static Dictionary<CommandType, List<string>> CommandList { get => _commandList; }
 
-        public static Type Build(ILogger logger, DiscordSettings settings, RadarrSettingsProvider radarrSettingsProvider, SonarrSettingsProvider sonarrSettingsProvider, OverseerrSettingsProvider overseerrSettingsProvider, OmbiSettingsProvider ombiSettingsProvider, LidarrSettingsProvider lidarrSettingsProvider)
+        public static Type Build(ILogger logger, DiscordSettings settings, RadarrSettingsProvider radarrSettingsProvider, SonarrSettingsProvider sonarrSettingsProvider, OverseerrSettingsProvider overseerrSettingsProvider, OmbiSettingsProvider ombiSettingsProvider, LidarrSettingsProvider lidarrSettingsProvider, RepairSettingsProvider repairSettingsProvider)
         {
-            string code = GetCode(settings, radarrSettingsProvider.Provide(), sonarrSettingsProvider.Provide(), overseerrSettingsProvider.Provide(), ombiSettingsProvider.Provide(), lidarrSettingsProvider.Provider());
+            string code = GetCode(settings, radarrSettingsProvider.Provide(), sonarrSettingsProvider.Provide(), overseerrSettingsProvider.Provide(), ombiSettingsProvider.Provide(), lidarrSettingsProvider.Provider(), repairSettingsProvider.Provide());
             var tree = SyntaxFactory.ParseSyntaxTree(code);
             string fileName = $"{DLLFileName}-{Guid.NewGuid()}.dll";
 
@@ -97,7 +97,7 @@ namespace Requestrr.WebApi.RequestrrBot
             throw new Exception("Failed to build SlashCommands assembly.");
         }
 
-        private static string GetCode(DiscordSettings settings, RadarrSettings radarrSettings, SonarrSettings sonarrSettings, OverseerrSettings overseerrSettings, OmbiSettings ombiSettings, LidarrSettings lidarrSettings)
+        private static string GetCode(DiscordSettings settings, RadarrSettings radarrSettings, SonarrSettings sonarrSettings, OverseerrSettings overseerrSettings, OmbiSettings ombiSettings, LidarrSettings lidarrSettings, RepairSettings repairSettings)
         {
             //Build a list of commands being created
             _commandList = new Dictionary<CommandType, List<string>>
@@ -107,7 +107,8 @@ namespace Requestrr.WebApi.RequestrrBot
                 { CommandType.IssueMovie, new List<string>() },
                 { CommandType.IssueTv, new List<string>() },
                 { CommandType.Music, new List<string>() },
-                { CommandType.Misc, new List<string>() }
+                { CommandType.Misc, new List<string>() },
+                { CommandType.Repair, new List<string>() }
             };
             var code = File.ReadAllText(Program.CombindPath("SlashCommands.txt"));
 
@@ -358,6 +359,82 @@ namespace Requestrr.WebApi.RequestrrBot
                 code = code.Replace("[ISSUE_TVDB_COMMAND_START]", string.Empty);
                 code = code.Replace("[ISSUE_TVDB_COMMAND_END]", string.Empty);
             }
+
+            
+            //Repair command handling
+            string repair = Language.Current.DiscordCommandRepairGroupName ?? "repair";
+            string repairMovieName = Language.Current.DiscordCommandRepairMovieName ?? "movie";
+            string repairTvName = Language.Current.DiscordCommandRepairTvName ?? "tv";
+
+            bool movieRepairAvailable = settings.MovieDownloadClient == DownloadClient.Radarr;
+            bool tvRepairAvailable = settings.TvShowDownloadClient == DownloadClient.Sonarr;
+
+            if (!repairSettings.Enabled || (!movieRepairAvailable && !tvRepairAvailable))
+            {
+                int beginIndex = code.IndexOf("[REPAIR_COMMAND_START]");
+                int endIndex = code.IndexOf("[REPAIR_COMMAND_END]") + "[REPAIR_COMMAND_END]".Length;
+                if (beginIndex >= 0 && endIndex > beginIndex)
+                {
+                    code = code.Replace(code.Substring(beginIndex, endIndex - beginIndex), string.Empty);
+                }
+                _commandList.Remove(CommandType.Repair);
+            }
+            else
+            {
+                code = code.Replace("[REPAIR_COMMAND_START]", string.Empty);
+                code = code.Replace("[REPAIR_COMMAND_END]", string.Empty);
+
+                code = code.Replace("[REPAIR_GROUP_NAME]", repair);
+                code = code.Replace("[REPAIR_GROUP_DESCRIPTION]", Language.Current.DiscordCommandRepairGroupDescription ?? "Re-download an existing broken file in your library");
+                code = code.Replace("[REPAIR_MOVIE_NAME]", repairMovieName);
+                code = code.Replace("[REPAIR_MOVIE_DESCRIPTION]", Language.Current.DiscordCommandRepairMovieDescription ?? "Repair (re-download) a movie that is already in the library");
+                code = code.Replace("[REPAIR_MOVIE_TITLE_OPTION_NAME]", Language.Current.DiscordCommandRepairMovieTitleOptionName ?? "title");
+                code = code.Replace("[REPAIR_MOVIE_TITLE_OPTION_DESCRIPTION]", Language.Current.DiscordCommandRepairMovieTitleOptionDescription ?? "title of the movie to repair");
+                code = code.Replace("[REPAIR_TV_NAME]", repairTvName);
+                code = code.Replace("[REPAIR_TV_DESCRIPTION]", Language.Current.DiscordCommandRepairTvDescription ?? "Repair (re-download) a TV show, season, or episode that is already in the library");
+                code = code.Replace("[REPAIR_TV_TITLE_OPTION_NAME]", Language.Current.DiscordCommandRepairTvTitleOptionName ?? "title");
+                code = code.Replace("[REPAIR_TV_TITLE_OPTION_DESCRIPTION]", Language.Current.DiscordCommandRepairTvTitleOptionDescription ?? "title of the TV show to repair");
+                code = code.Replace("[REPAIR_TV_SEASON_OPTION_NAME]", Language.Current.DiscordCommandRepairTvSeasonOptionName ?? "season");
+                code = code.Replace("[REPAIR_TV_SEASON_OPTION_DESCRIPTION]", Language.Current.DiscordCommandRepairTvSeasonOptionDescription ?? "(optional) season number to repair");
+                code = code.Replace("[REPAIR_TV_EPISODE_OPTION_NAME]", Language.Current.DiscordCommandRepairTvEpisodeOptionName ?? "episode");
+                code = code.Replace("[REPAIR_TV_EPISODE_OPTION_DESCRIPTION]", Language.Current.DiscordCommandRepairTvEpisodeOptionDescription ?? "(optional) episode number to repair (requires season)");
+
+                // Pick a representative category id (first one) so the workflow factory can resolve quality profiles, etc.
+                int repairMovieCategoryId = radarrSettings != null && radarrSettings.Categories != null && radarrSettings.Categories.Any() ? radarrSettings.Categories.First().Id : 99999;
+                int repairTvCategoryId = sonarrSettings != null && sonarrSettings.Categories != null && sonarrSettings.Categories.Any() ? sonarrSettings.Categories.First().Id : 99999;
+                code = code.Replace("[REPAIR_MOVIE_CATEGORY_ID]", repairMovieCategoryId.ToString());
+                code = code.Replace("[REPAIR_TV_CATEGORY_ID]", repairTvCategoryId.ToString());
+
+                code = code.Replace("[REQUIRED_REPAIR_ROLE_IDS]", string.Join(",", repairSettings.MonitoredRoles.Select(x => $"{x}UL")));
+
+                // Strip movie or tv subcommand blocks when their download client is not Radarr/Sonarr.
+                if (!movieRepairAvailable)
+                {
+                    int b = code.IndexOf("[REPAIR_MOVIE_COMMAND_START]");
+                    int e = code.IndexOf("[REPAIR_MOVIE_COMMAND_END]") + "[REPAIR_MOVIE_COMMAND_END]".Length;
+                    if (b >= 0 && e > b) code = code.Replace(code.Substring(b, e - b), string.Empty);
+                }
+                else
+                {
+                    code = code.Replace("[REPAIR_MOVIE_COMMAND_START]", string.Empty);
+                    code = code.Replace("[REPAIR_MOVIE_COMMAND_END]", string.Empty);
+                    _commandList[CommandType.Repair].Add($"{repair} {repairMovieName}");
+                }
+
+                if (!tvRepairAvailable)
+                {
+                    int b = code.IndexOf("[REPAIR_TV_COMMAND_START]");
+                    int e = code.IndexOf("[REPAIR_TV_COMMAND_END]") + "[REPAIR_TV_COMMAND_END]".Length;
+                    if (b >= 0 && e > b) code = code.Replace(code.Substring(b, e - b), string.Empty);
+                }
+                else
+                {
+                    code = code.Replace("[REPAIR_TV_COMMAND_START]", string.Empty);
+                    code = code.Replace("[REPAIR_TV_COMMAND_END]", string.Empty);
+                    _commandList[CommandType.Repair].Add($"{repair} {repairTvName}");
+                }
+            }
+
 
             //Sort list of commands into one list
             List<string> listOfCommands = _commandList.SelectMany(x => x.Value).ToList();

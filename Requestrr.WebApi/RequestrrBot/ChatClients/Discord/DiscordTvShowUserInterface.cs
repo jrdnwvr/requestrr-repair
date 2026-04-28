@@ -607,5 +607,178 @@ namespace Requestrr.WebApi.RequestrrBot.ChatClients.Discord
 
             return seasonName;
         }
+
+        // ----- /repair flow -----
+
+        public async Task ShowTvShowRepairSelection(TvShowRequest request, IReadOnlyList<SearchedTvShow> searchedTvShows, int? seasonNumber, int? episodeNumber)
+        {
+            // Encode optional season/episode in the customId so the next step can read it.
+            int sn = seasonNumber ?? -1;
+            int en = episodeNumber ?? -1;
+            var options = searchedTvShows.Take(15)
+                .Select(x => new DiscordSelectComponentOption(GetFormatedTvShowTitle(x), $"{request.CategoryId}/{x.TheTvDbId}/{sn}/{en}"))
+                .ToList();
+            var select = new DiscordSelectComponent($"RPTS/{_interactionContext.User.Id}/{request.CategoryId}", LimitStringSize(Language.Current.DiscordCommandTvRequestHelpSearchDropdown), options);
+            await _interactionContext.EditOriginalResponseAsync(new DiscordWebhookBuilder().AddComponents(select).WithContent(Language.Current.DiscordCommandTvRequestHelpSearch));
+        }
+
+        public async Task ShowSeasonSelectionForRepairAsync(TvShowRequest request, TvShow tvShow, IReadOnlyList<int> seasons)
+        {
+            // RPTSE custom IDs encode {categoryId}/{tvDbId} so the handler can route without server state.
+            // Each option's value is "{categoryId}/{tvDbId}/{seasonNumber}".
+            var options = seasons.Take(25)
+                .Select(s => new DiscordSelectComponentOption($"Season {s}", $"{request.CategoryId}/{tvShow.TheTvDbId}/{s}"))
+                .ToList();
+
+            var placeholder = LimitStringSize(Language.Current.DiscordCommandTvRepairSeasonDropdownPlaceholder ?? "Select a season");
+            var select = new DiscordSelectComponent($"RPTSE/{_interactionContext.User.Id}/{request.CategoryId}/{tvShow.TheTvDbId}", placeholder, options);
+            string content = Language.Current.DiscordCommandTvRepairSeasonDropdown ?? "Pick a season to repair";
+
+            var embed = GenerateTvShowDetailsAsync(tvShow);
+            var builder = (await AddPreviousDropdownsAsync(tvShow, new DiscordWebhookBuilder().AddEmbed(embed)))
+                .AddComponents(select)
+                .WithContent(content);
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+        public async Task ShowEpisodeSelectionForRepairAsync(TvShowRequest request, TvShow tvShow, int seasonNumber, IReadOnlyList<RepairableEpisode> episodes)
+        {
+            // RPTEE custom IDs encode {categoryId}/{tvDbId}/{seasonNumber} so the handler can route.
+            // Each option's value is "{categoryId}/{tvDbId}/{seasonNumber}/{episodeNumberOrAll}" — "ALL" picks the whole season.
+            var optionList = new List<DiscordSelectComponentOption>();
+
+            string wholeSeasonLabel = (Language.Current.DiscordCommandTvRepairWholeSeasonOption ?? "Whole Season [SeasonNumber]")
+                .Replace("[SeasonNumber]", seasonNumber.ToString());
+            optionList.Add(new DiscordSelectComponentOption(
+                LimitStringSize(wholeSeasonLabel),
+                $"{request.CategoryId}/{tvShow.TheTvDbId}/{seasonNumber}/ALL"));
+
+            // TODO: paginate when a season has more than 24 episode files. For v1 we truncate to the first 24
+            // (24 because the "Whole Season" option occupies one of Discord's 25 slots).
+            bool truncated = episodes.Count > 24;
+            foreach (var ep in episodes.Take(24))
+            {
+                string title = string.IsNullOrWhiteSpace(ep.Title) ? string.Empty : $" — \"{ep.Title}\"";
+                string label = LimitStringSize($"S{seasonNumber:D2}E{ep.EpisodeNumber:D2}{title}");
+                optionList.Add(new DiscordSelectComponentOption(
+                    label,
+                    $"{request.CategoryId}/{tvShow.TheTvDbId}/{seasonNumber}/{ep.EpisodeNumber}"));
+            }
+
+            string placeholder = truncated
+                ? (Language.Current.DiscordCommandTvRepairEpisodeDropdownTruncated ?? "Showing first 25 episodes — pick one or repair the whole season")
+                : (Language.Current.DiscordCommandTvRepairEpisodeDropdownPlaceholder ?? "Select an episode (or whole season)");
+
+            var select = new DiscordSelectComponent($"RPTEE/{_interactionContext.User.Id}/{request.CategoryId}/{tvShow.TheTvDbId}/{seasonNumber}", LimitStringSize(placeholder), optionList);
+            string content = Language.Current.DiscordCommandTvRepairEpisodeDropdown ?? "Pick an episode to repair";
+
+            var embed = GenerateTvShowDetailsAsync(tvShow);
+            var builder = (await AddPreviousDropdownsAsync(tvShow, new DiscordWebhookBuilder().AddEmbed(embed)))
+                .AddComponents(select)
+                .WithContent(content);
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+        public async Task WarnRepairNoFilesAsync(TvShow tvShow)
+        {
+            string template = Language.Current.DiscordCommandTvRepairNoFiles ?? "No downloaded episodes found for **[TvShowTitle]** — nothing to repair.";
+            string content = tvShow != null ? template.ReplaceTokens(tvShow) : template;
+            await _interactionContext.EditOriginalResponseAsync(new DiscordWebhookBuilder().WithContent(content));
+        }
+
+        public async Task WarnRepairNoFilesInSeasonAsync(TvShow tvShow, int seasonNumber)
+        {
+            string template = Language.Current.DiscordCommandTvRepairNoFilesInSeason ?? "No downloaded episodes found for **[TvShowTitle]** Season [SeasonNumber] — nothing to repair.";
+            string content = tvShow != null ? template.ReplaceTokens(tvShow) : template;
+            content = content.Replace("[SeasonNumber]", seasonNumber.ToString());
+            await _interactionContext.EditOriginalResponseAsync(new DiscordWebhookBuilder().WithContent(content));
+        }
+
+
+        public async Task DisplayTvShowRepairConfirmationAsync(TvShowRequest request, TvShow tvShow, int? seasonNumber, int? episodeNumber, bool deleteFiles)
+        {
+            int sn = seasonNumber ?? -1;
+            int en = episodeNumber ?? -1;
+            var confirmButton = new DiscordButtonComponent(ButtonStyle.Danger, $"RPTC/{_interactionContext.User.Id}/{request.CategoryId}/{tvShow.TheTvDbId}/{sn}/{en}", Language.Current.DiscordCommandRepairConfirmButton ?? "Confirm Repair");
+            var cancelButton = new DiscordButtonComponent(ButtonStyle.Secondary, $"RPTX/{_interactionContext.User.Id}/{request.CategoryId}/{tvShow.TheTvDbId}/{sn}/{en}", Language.Current.DiscordCommandRepairCancelButton ?? "Cancel");
+
+            string scope = DescribeScope(seasonNumber, episodeNumber);
+            string template = deleteFiles
+                ? (Language.Current.DiscordCommandTvRepairConfirm ?? "This will delete the existing file(s) for **[TvShowTitle]** ([Scope]) and trigger a fresh download. Continue?")
+                : (Language.Current.DiscordCommandTvRepairConfirmNoDelete ?? "This will trigger a fresh search for **[TvShowTitle]** ([Scope]) without deleting the existing file. Continue?");
+            string content = template.ReplaceTokens(tvShow).Replace("[Scope]", scope);
+
+            var embed = GenerateTvShowDetailsAsync(tvShow);
+            var builder = (await AddPreviousDropdownsAsync(tvShow, new DiscordWebhookBuilder().AddEmbed(embed)))
+                .AddComponents(confirmButton, cancelButton)
+                .WithContent(content);
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+        public async Task DisplayTvShowRepairSuccessAsync(TvShow tvShow, int? seasonNumber, int? episodeNumber, TvShowRepairResult result)
+        {
+            var doneButton = new DiscordButtonComponent(ButtonStyle.Success, $"0/1/0", Language.Current.DiscordCommandRepairDoneButton ?? "Repair queued", true);
+            string scope = DescribeScope(seasonNumber, episodeNumber);
+            string template = Language.Current.DiscordCommandTvRepairSuccess ?? "Started repair for **[TvShowTitle]** ([Scope]). Sonarr will grab a new copy shortly.";
+            string content = template.ReplaceTokens(tvShow).Replace("[Scope]", scope);
+
+            var embed = GenerateTvShowDetailsAsync(tvShow);
+            var builder = (await AddPreviousDropdownsAsync(tvShow, new DiscordWebhookBuilder().AddEmbed(embed)))
+                .AddComponents(doneButton)
+                .WithContent(content);
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+        public async Task DisplayTvShowRepairFailedAsync(TvShow tvShow, int? seasonNumber, int? episodeNumber, TvShowRepairResult result)
+        {
+            var doneButton = new DiscordButtonComponent(ButtonStyle.Danger, $"0/1/0", Language.Current.DiscordCommandRepairFailedButton ?? "Repair failed", true);
+            string scope = DescribeScope(seasonNumber, episodeNumber);
+            string template = Language.Current.DiscordCommandTvRepairFailed ?? "Could not start repair for **[TvShowTitle]** ([Scope]). [Error]";
+            string content = template.ReplaceTokens(tvShow).Replace("[Scope]", scope).Replace("[Error]", result?.ErrorMessage ?? string.Empty);
+
+            var embed = GenerateTvShowDetailsAsync(tvShow);
+            var builder = (await AddPreviousDropdownsAsync(tvShow, new DiscordWebhookBuilder().AddEmbed(embed)))
+                .AddComponents(doneButton)
+                .WithContent(content);
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+        public async Task DisplayTvShowRepairCancelledAsync(TvShow tvShow, int? seasonNumber, int? episodeNumber)
+        {
+            var doneButton = new DiscordButtonComponent(ButtonStyle.Secondary, $"0/1/0", Language.Current.DiscordCommandRepairCancelButton ?? "Cancel", true);
+            string content = Language.Current.DiscordCommandTvRepairCancelled ?? "Repair cancelled.";
+            if (tvShow != null)
+                content = content.ReplaceTokens(tvShow);
+
+            DiscordWebhookBuilder builder;
+            if (tvShow != null)
+            {
+                var embed = GenerateTvShowDetailsAsync(tvShow);
+                builder = (await AddPreviousDropdownsAsync(tvShow, new DiscordWebhookBuilder().AddEmbed(embed)))
+                    .AddComponents(doneButton)
+                    .WithContent(content);
+            }
+            else
+            {
+                builder = new DiscordWebhookBuilder().AddComponents(doneButton).WithContent(content);
+            }
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+        public async Task WarnRepairDisabledAsync()
+        {
+            await _interactionContext.EditOriginalResponseAsync(new DiscordWebhookBuilder()
+                .WithContent(Language.Current.DiscordCommandRepairDisabled ?? "The /repair command is disabled in this server."));
+        }
+
+        private static string DescribeScope(int? seasonNumber, int? episodeNumber)
+        {
+            if (seasonNumber.HasValue && episodeNumber.HasValue)
+                return $"S{seasonNumber.Value:D2}E{episodeNumber.Value:D2}";
+            if (seasonNumber.HasValue)
+                return $"Season {seasonNumber.Value}";
+            return "all seasons";
+        }
+
     }
 }
