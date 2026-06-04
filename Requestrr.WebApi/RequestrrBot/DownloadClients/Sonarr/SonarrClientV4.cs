@@ -745,6 +745,52 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Sonarr
                     }
                 }
 
+                // Ensure the series and the target episodes are monitored before searching.
+                // Sonarr's search commands skip unmonitored series/episodes, so a repair on an
+                // unmonitored entity would otherwise delete files and never replace them.
+                try
+                {
+                    var seriesGet = await HttpGetAsync($"{BaseURL}/series/{seriesId}");
+                    if (seriesGet.IsSuccessStatusCode)
+                    {
+                        dynamic seriesObj = JObject.Parse(await seriesGet.Content.ReadAsStringAsync());
+                        bool changed = false;
+                        if (seriesObj.monitored == null || (bool)seriesObj.monitored == false)
+                        {
+                            seriesObj.monitored = true;
+                            changed = true;
+                        }
+                        if (seriesObj.seasons != null)
+                        {
+                            foreach (var season in seriesObj.seasons)
+                            {
+                                bool inScope = !seasonNumber.HasValue || (int)season.seasonNumber == seasonNumber.Value;
+                                if (inScope && season.monitored != null && (bool)season.monitored == false)
+                                {
+                                    season.monitored = true;
+                                    changed = true;
+                                }
+                            }
+                        }
+                        if (changed)
+                            await HttpPutAsync($"{BaseURL}/series/{seriesId}", JsonConvert.SerializeObject(seriesObj));
+                    }
+
+                    var episodeIdsToMonitor = episodesToRepair.Select(e => e.id).ToArray();
+                    if (episodeIdsToMonitor.Length > 0)
+                    {
+                        await HttpPutAsync($"{BaseURL}/episode/monitor", JsonConvert.SerializeObject(new
+                        {
+                            episodeIds = episodeIdsToMonitor,
+                            monitored = true,
+                        }));
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.LogError(ex, $"Repair: failed to ensure series {seriesId} is monitored before search: " + ex.Message);
+                }
+
                 // Trigger the appropriate search command.
                 HttpResponseMessage searchResponse;
                 if (episodeNumber.HasValue && seasonNumber.HasValue)
