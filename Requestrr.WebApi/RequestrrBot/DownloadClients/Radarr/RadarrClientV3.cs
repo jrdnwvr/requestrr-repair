@@ -437,6 +437,28 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Radarr
                     }
                 }
 
+                // Ensure the movie is monitored before searching. Radarr's MoviesSearch
+                // command will not grab a release for an unmonitored movie, so without this
+                // a repair on an unmonitored movie would delete the file and never replace it.
+                try
+                {
+                    var monitorGet = await HttpGetAsync($"{BaseURL}/movie/{radarrMovieId}");
+                    if (monitorGet.IsSuccessStatusCode)
+                    {
+                        dynamic monitorMovie = JObject.Parse(await monitorGet.Content.ReadAsStringAsync());
+                        bool isMonitored = monitorMovie.monitored != null && (bool)monitorMovie.monitored;
+                        if (!isMonitored)
+                        {
+                            monitorMovie.monitored = true;
+                            await HttpPutAsync($"{BaseURL}/movie/{radarrMovieId}", JsonConvert.SerializeObject(monitorMovie));
+                        }
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    _logger.LogError(ex, $"Repair: failed to ensure movie {radarrMovieId} is monitored before search: " + ex.Message);
+                }
+
                 var searchResponse = await HttpPostAsync($"{BaseURL}/command", JsonConvert.SerializeObject(new
                 {
                     name = "MoviesSearch",
