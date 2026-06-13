@@ -17,5 +17,13 @@ namespace Requestrr.WebApi.RequestrrBot.Music
         Task WarnMusicArtistUnavailableAndAlreadyHasNotificationAsync(MusicArtist music);
         Task AskForNotificationArtistRequestAsync(MusicArtist music);
         Task DisplayNotificationArtistSuccessAsync(MusicArtist music);
+
+        // Album-level requesting
+        Task ShowMusicAlbumSelection(MusicRequest request, IReadOnlyList<MusicAlbum> albums);
+        Task WarnNoMusicAlbumFoundAsync(string albumName);
+        Task DisplayMusicAlbumDetailsAsync(MusicRequest request, MusicAlbum album);
+        Task DisplayAlbumRequestSuccessAsync(MusicAlbum album);
+        Task DisplayAlbumRequestDeniedAsync(MusicAlbum album);
+        Task WarnMusicAlbumAlreadyAvailableAsync(MusicAlbum album);
     }
 }

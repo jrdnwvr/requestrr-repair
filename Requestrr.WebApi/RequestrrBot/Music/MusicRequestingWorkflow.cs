@@ -120,5 +120,64 @@ namespace Requestrr.WebApi.RequestrrBot.Music
         {
             return !music.Available && !music.Requested;
         }
+
+
+        // ---------------- Album-level requesting ----------------
+
+        public async Task SearchMusicForAlbumAsync(string albumName)
+        {
+            albumName = albumName.Replace(".", " ");
+            IReadOnlyList<MusicAlbum> albums = await _musicSearcher.SearchMusicForAlbumAsync(new MusicRequest(_user, _categoryId), albumName);
+
+            if (albums == null || !albums.Any())
+            {
+                await _userInterface.WarnNoMusicAlbumFoundAsync(albumName);
+                return;
+            }
+
+            if (albums.Count > 1)
+                await _userInterface.ShowMusicAlbumSelection(new MusicRequest(_user, _categoryId), albums);
+            else
+                await HandleMusicAlbumSelectionInternalAsync(albums.Single());
+        }
+
+        public async Task HandleMusicAlbumSelectionAsync(string albumId)
+        {
+            MusicAlbum album = await _musicSearcher.SearchMusicForAlbumIdAsync(new MusicRequest(_user, _categoryId), albumId);
+
+            if (album == null)
+            {
+                await _userInterface.WarnNoMusicAlbumFoundAsync(albumId);
+                return;
+            }
+
+            await HandleMusicAlbumSelectionInternalAsync(album);
+        }
+
+        private async Task HandleMusicAlbumSelectionInternalAsync(MusicAlbum album)
+        {
+            if (!album.Available)
+                await _userInterface.DisplayMusicAlbumDetailsAsync(new MusicRequest(_user, _categoryId), album);
+            else
+                await _userInterface.WarnMusicAlbumAlreadyAvailableAsync(album);
+        }
+
+        public async Task RequestMusicAlbumAsync(string albumId)
+        {
+            MusicAlbum album = await _musicSearcher.SearchMusicForAlbumIdAsync(new MusicRequest(_user, _categoryId), albumId);
+
+            if (album == null)
+            {
+                await _userInterface.WarnNoMusicAlbumFoundAsync(albumId);
+                return;
+            }
+
+            MusicRequestResult result = await _requester.RequestMusicAlbumAsync(new MusicRequest(_user, _categoryId), album);
+
+            if (result.WasDenied)
+                await _userInterface.DisplayAlbumRequestDeniedAsync(album);
+            else
+                await _userInterface.DisplayAlbumRequestSuccessAsync(album);
+        }
     }
 }

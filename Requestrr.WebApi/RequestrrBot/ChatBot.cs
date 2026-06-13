@@ -409,6 +409,10 @@ namespace Requestrr.WebApi.RequestrrBot
                         await CreateTvShowNotificationWorkflow(e)
                             .AddNotificationAsync(userId, tvDbId, seasonType, int.Parse(seasonNumber));
                     }
+                    else if (e.Id.ToLower().StartsWith("mua"))
+                    {
+                        await HandleMusicAlbumRequestAsync(e);
+                    }
                     else if (e.Id.ToLower().StartsWith("mur"))
                     {
                         await HandleMusicRequestAsync(e);
@@ -714,6 +718,26 @@ namespace Requestrr.WebApi.RequestrrBot
 
                 await CreateMusicRequestWorkFlow(e, categoryId)
                     .RequestMusicArtistAsync(e.Id.Split("/").Last());
+            }
+        }
+
+
+        private async Task HandleMusicAlbumRequestAsync(ComponentInteractionCreateEventArgs e)
+        {
+            if (e.Id.ToLower().StartsWith("muasa"))
+            {
+                if (e.Values != null && e.Values.Any())
+                {
+                    await CreateMusicRequestWorkFlow(e, int.Parse(e.Values.Single().Split("/").First()))
+                        .HandleMusicAlbumSelectionAsync(e.Values.Single().Split("/").Last());
+                }
+            }
+            else if (e.Id.ToLower().StartsWith("muaca"))
+            {
+                var categoryId = int.Parse(e.Id.Split("/").Skip(2).First());
+
+                await CreateMusicRequestWorkFlow(e, categoryId)
+                    .RequestMusicAlbumAsync(e.Id.Split("/").Last());
             }
         }
 

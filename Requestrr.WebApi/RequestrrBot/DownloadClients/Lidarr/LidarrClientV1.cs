@@ -348,6 +348,174 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Lidarr
         }
 
 
+        // ---------------- Album-level requesting ----------------
+
+        private MusicAlbum ConvertToAlbum(JToken a)
+        {
+            if (a == null) return null;
+            JToken artist = a["artist"];
+            bool available = false;
+            try { available = (a["statistics"]?["trackFileCount"]?.Value<int>() ?? 0) > 0; } catch { }
+            string poster = null;
+            try
+            {
+                JToken imgs = a["images"];
+                if (imgs != null)
+                {
+                    JToken cover = imgs.FirstOrDefault(i => string.Equals((string)i["coverType"], "cover", StringComparison.OrdinalIgnoreCase));
+                    poster = (cover ?? imgs.FirstOrDefault())?["remoteUrl"]?.ToString();
+                }
+            }
+            catch { }
+
+            string lidarrId = null;
+            if (a["id"] != null && a["id"].Type != JTokenType.Null && a["id"].Value<long>() > 0)
+                lidarrId = a["id"].ToString();
+
+            return new MusicAlbum
+            {
+                DownloadClientId = lidarrId,
+                AlbumId = a["foreignAlbumId"]?.ToString(),
+                AlbumTitle = a["title"]?.ToString(),
+                ArtistId = artist?["foreignArtistId"]?.ToString(),
+                ArtistName = artist?["artistName"]?.ToString(),
+                Overview = a["overview"]?.ToString(),
+                ReleaseDate = a["releaseDate"]?.ToString(),
+                Available = available,
+                Monitored = a["monitored"]?.Value<bool>() ?? false,
+                Requested = false,
+                PosterPath = poster
+            };
+        }
+
+        public async Task<IReadOnlyList<MusicAlbum>> SearchMusicForAlbumAsync(MusicRequest request, string albumName)
+        {
+            try
+            {
+                string searchTerm = Uri.EscapeDataString(albumName.ToLower().Trim());
+                HttpResponseMessage response = await HttpGetAsync($"{BaseURL}/album/lookup?term={searchTerm}");
+                await response.ThrowIfNotSuccessfulAsync("LidarrAlbumLookup failed", x => x.error);
+
+                JArray arr = JArray.Parse(await response.Content.ReadAsStringAsync());
+                return arr.Select(ConvertToAlbum)
+                          .Where(x => x != null && !string.IsNullOrWhiteSpace(x.AlbumId) && !string.IsNullOrWhiteSpace(x.ArtistId))
+                          .ToArray();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An error occurred while searching for music album with Lidarr: " + ex.Message);
+            }
+
+            throw new Exception("An error occurred while searching for music album with Lidarr");
+        }
+
+        public async Task<MusicAlbum> SearchMusicForAlbumIdAsync(MusicRequest request, string albumId)
+        {
+            try
+            {
+                HttpResponseMessage response = await HttpGetAsync($"{BaseURL}/album/lookup?term=lidarr:{albumId}");
+                await response.ThrowIfNotSuccessfulAsync("LidarrAlbumIdLookup failed", x => x.error);
+
+                JArray arr = JArray.Parse(await response.Content.ReadAsStringAsync());
+                JToken match = arr.FirstOrDefault(x => string.Equals((string)x["foreignAlbumId"], albumId, StringComparison.OrdinalIgnoreCase)) ?? arr.FirstOrDefault();
+                return match != null ? ConvertToAlbum(match) : null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while searching for music album by Id \"{albumId}\" with Lidarr: {ex.Message}");
+            }
+
+            throw new Exception("An error occurred while searching for music album by Id with Lidarr");
+        }
+
+        public async Task<MusicRequestResult> RequestMusicAlbumAsync(MusicRequest request, MusicAlbum album)
+        {
+            try
+            {
+                LidarrCategory category = _lidarrSettings.Categories.SingleOrDefault(x => x.Id == request.CategoryId);
+                if (category == null)
+                    throw new Exception($"Could not find category with id {request.CategoryId}");
+
+                // 1) Ensure the artist exists in Lidarr, monitoring NOTHING by default.
+                int? artistDbId = null;
+                JSONMusicArtist existing = await FindExistingArtistByMusicDbIdAsync(album.ArtistId);
+                if (existing != null && existing.Id.HasValue)
+                {
+                    artistDbId = existing.Id;
+                }
+                else
+                {
+                    HttpResponseMessage addResp = await HttpPostAsync($"{BaseURL}/artist", JsonConvert.SerializeObject(new
+                    {
+                        foreignArtistId = album.ArtistId,
+                        artistName = album.ArtistName,
+                        mbId = album.ArtistId,
+                        qualityProfileId = category.ProfileId,
+                        metadataProfileId = category.MetadataProfileId,
+                        monitored = false,
+                        rootFolderPath = category.RootFolder,
+                        tags = JToken.FromObject(category.Tags),
+                        addOptions = new
+                        {
+                            monitor = "none",
+                            searchForMissingAlbums = false
+                        }
+                    }));
+                    await addResp.ThrowIfNotSuccessfulAsync("LidarrAddArtistForAlbum failed", x => x.error);
+                    JObject added = JObject.Parse(await addResp.Content.ReadAsStringAsync());
+                    artistDbId = added["id"]?.Value<int>();
+                }
+
+                if (artistDbId == null)
+                    throw new Exception("Could not resolve Lidarr artist id for album request");
+
+                // 2) Find the specific album under the artist (metadata import may lag, so retry).
+                int? lidarrAlbumId = null;
+                for (int attempt = 0; attempt < 8 && lidarrAlbumId == null; attempt++)
+                {
+                    HttpResponseMessage albResp = await HttpGetAsync($"{BaseURL}/album?artistId={artistDbId}");
+                    if (albResp.IsSuccessStatusCode)
+                    {
+                        JArray albArr = JArray.Parse(await albResp.Content.ReadAsStringAsync());
+                        JToken match = albArr.FirstOrDefault(x => string.Equals((string)x["foreignAlbumId"], album.AlbumId, StringComparison.OrdinalIgnoreCase));
+                        if (match != null)
+                            lidarrAlbumId = match["id"]?.Value<int>();
+                    }
+                    if (lidarrAlbumId == null)
+                        await Task.Delay(2000);
+                }
+
+                if (lidarrAlbumId == null)
+                    throw new Exception("Album not yet present in Lidarr after adding the artist (metadata still importing)");
+
+                // 3) Monitor just this album.
+                HttpResponseMessage monResp = await HttpPutAsync($"{BaseURL}/album/monitor", JsonConvert.SerializeObject(new
+                {
+                    albumIds = new[] { lidarrAlbumId.Value },
+                    monitored = true
+                }));
+                await monResp.ThrowIfNotSuccessfulAsync("LidarrAlbumMonitor failed", x => x.error);
+
+                // 4) Search for it.
+                if (_lidarrSettings.SearchNewRequests)
+                {
+                    HttpResponseMessage searchResp = await HttpPostAsync($"{BaseURL}/command", JsonConvert.SerializeObject(new
+                    {
+                        name = "AlbumSearch",
+                        albumIds = new[] { lidarrAlbumId.Value }
+                    }));
+                    await searchResp.ThrowIfNotSuccessfulAsync("LidarrAlbumSearch failed", x => x.error);
+                }
+
+                return new MusicRequestResult();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while requesting album \"{album?.AlbumTitle}\" by \"{album?.ArtistName}\" from Lidarr: " + ex.Message);
+            }
+
+            throw new Exception("An error occurred while requesting an album from Lidarr");
+        }
 
 
         public async Task<MusicRequestResult> RequestMusicAsync(MusicRequest request, MusicArtist music)
