@@ -129,7 +129,7 @@ namespace Requestrr.WebApi.RequestrrBot
             [SlashCommand("[REQUEST_MUSIC_ARTIST_NAME]", "[REQUEST_MUSIC_ARTIST_DESCRIPTION]")]
             [RequireRoles(new ulong[] { [REQUIRED_MUSIC_ROLE_IDS] })]
             [RequireChannels(new ulong[] { [REQUIRED_CHANNEL_IDS] })]
-            public async Task MusicArtistByName[MUSIC_CATEGORY_ID](InteractionContext ctx, [Option("[REQUEST_MUSIC_ARTIST_OPTION_NAME]", "[REQUEST_MUSIC_ARTIST_OPTION_DESCRIPTION]")] string artistName)
+            public async Task MusicArtistByName[MUSIC_CATEGORY_ID](InteractionContext ctx, [Option("[REQUEST_MUSIC_ARTIST_OPTION_NAME]", "[REQUEST_MUSIC_ARTIST_OPTION_DESCRIPTION]")] string artistName, [Option("type", "Request a specific album or the artist's entire discography (default: album)")] Requestrr.WebApi.RequestrrBot.Music.MusicRequestScope scope = Requestrr.WebApi.RequestrrBot.Music.MusicRequestScope.Album)
             {
                 try
                 {
@@ -137,11 +137,15 @@ namespace Requestrr.WebApi.RequestrrBot
                     await ctx.CreateResponseAsync(InteractionResponseType.ChannelMessageWithSource, new DiscordInteractionResponseBuilder().AsEphemeral(settings.AutomaticallyPurgeCommandMessages).WithContent(Language.Current.DiscordCommandSending));
 
                     var workFlow = _serviceProvider.Get<MusicWorkflowFactory>().CreateRequestingWorkflow(ctx.Interaction, [MUSIC_CATEGORY_ID]);
-                    await workFlow.SearchMusicForArtistAsync(artistName.Trim());
+
+                    if (scope == Requestrr.WebApi.RequestrrBot.Music.MusicRequestScope.Artist)
+                        await workFlow.SearchMusicForArtistAsync(artistName.Trim());
+                    else
+                        await workFlow.SearchMusicForAlbumAsync(artistName.Trim());
                 }
                 catch (System.Exception ex)
                 {
-                    _logger.LogError(ex, $"Error while searching Music for artist {artistName} : " + ex.Message);
+                    _logger.LogError(ex, $"Error while searching Music for \"{artistName}\" : " + ex.Message);
                 }
             }
             [MUSIC_COMMAND_END]

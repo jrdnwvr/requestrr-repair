@@ -109,6 +109,16 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Lidarr
             return CreateInstance<IMusicSearcher>().SearchMusicForArtistAsync(request, artistName);
         }
 
+        public Task<IReadOnlyList<MusicAlbum>> SearchMusicForAlbumAsync(MusicRequest request, string albumName)
+        {
+            return CreateInstance<IMusicSearcher>().SearchMusicForAlbumAsync(request, albumName);
+        }
+
+        public Task<MusicAlbum> SearchMusicForAlbumIdAsync(MusicRequest request, string albumId)
+        {
+            return CreateInstance<IMusicSearcher>().SearchMusicForAlbumIdAsync(request, albumId);
+        }
+
 
         //-----------------------------
 
@@ -127,6 +137,11 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Lidarr
         public Task<MusicRequestResult> RequestMusicAsync(MusicRequest request, MusicArtist music)
         {
             return CreateInstance<IMusicRequester>().RequestMusicAsync(request, music);
+        }
+
+        public Task<MusicRequestResult> RequestMusicAlbumAsync(MusicRequest request, MusicAlbum album)
+        {
+            return CreateInstance<IMusicRequester>().RequestMusicAlbumAsync(request, album);
         }
 
 

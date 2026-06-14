@@ -129,12 +129,94 @@ namespace Requestrr.WebApi.RequestrrBot.ChatClients.Discord
         }
 
 
+        // ---------------- Album-level requesting ----------------
+
+        public async Task ShowMusicAlbumSelection(MusicRequest request, IReadOnlyList<MusicAlbum> albums)
+        {
+            List<DiscordSelectComponentOption> options = albums.Take(15).Select(x => new DiscordSelectComponentOption(GetFormattedMusicAlbumName(x), $"{request.CategoryId}/{x.AlbumId}")).ToList();
+            DiscordSelectComponent select = new DiscordSelectComponent($"MuASA/{_interactionContext.User.Id}/{request.CategoryId}", LimitStringSize("Select an album..."), options);
+
+            await _interactionContext.EditOriginalResponseAsync(new DiscordWebhookBuilder().AddComponents(select).WithContent("Here are the albums I found, which one would you like?"));
+        }
+
+
+        public async Task WarnNoMusicAlbumFoundAsync(string albumName)
+        {
+            await _interactionContext.EditOriginalResponseAsync(new DiscordWebhookBuilder().WithContent($"I could not find any album matching **{albumName}**."));
+        }
+
+
+        public async Task DisplayMusicAlbumDetailsAsync(MusicRequest request, MusicAlbum album)
+        {
+            DiscordButtonComponent requestButton = new DiscordButtonComponent(ButtonStyle.Primary, $"MuACA/{_interactionContext.User.Id}/{request.CategoryId}/{album.AlbumId}", Language.Current.DiscordCommandRequestButton);
+            var builder = (await AddPreviousAlbumDropdownsAsync(album, new DiscordWebhookBuilder().AddEmbed(GenerateMusicAlbumDetails(album)))).AddComponents(requestButton).WithContent("Do you want to request this album?");
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+
+        public async Task WarnMusicAlbumAlreadyAvailableAsync(MusicAlbum album)
+        {
+            var requestButton = new DiscordButtonComponent(ButtonStyle.Primary, $"0/1/0", Language.Current.DiscordCommandAvailableButton, true);
+            var builder = (await AddPreviousAlbumDropdownsAsync(album, new DiscordWebhookBuilder().AddEmbed(GenerateMusicAlbumDetails(album)))).AddComponents(requestButton).WithContent("Good news! This album is already available. 🎶");
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+
+        public async Task DisplayAlbumRequestSuccessAsync(MusicAlbum album)
+        {
+            DiscordButtonComponent successButton = new DiscordButtonComponent(ButtonStyle.Success, $"0/1/0", Language.Current.DiscordCommandRequestButtonSuccess);
+            DiscordWebhookBuilder builder = (await AddPreviousAlbumDropdownsAsync(album, new DiscordWebhookBuilder().AddEmbed(GenerateMusicAlbumDetails(album)))).AddComponents(successButton).WithContent("✅ Your album request has been received!");
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+
+        public async Task DisplayAlbumRequestDeniedAsync(MusicAlbum album)
+        {
+            DiscordButtonComponent deniedButton = new DiscordButtonComponent(ButtonStyle.Danger, $"0/1/0", Language.Current.DiscordCommandRequestButtonDenied);
+            DiscordWebhookBuilder builder = (await AddPreviousAlbumDropdownsAsync(album, new DiscordWebhookBuilder().AddEmbed(GenerateMusicAlbumDetails(album)))).AddComponents(deniedButton).WithContent("Your album request was denied.");
+            await _interactionContext.EditOriginalResponseAsync(builder);
+        }
+
+
+        public static DiscordEmbed GenerateMusicAlbumDetails(MusicAlbum album)
+        {
+            string title = string.IsNullOrWhiteSpace(album.ArtistName) ? album.AlbumTitle : $"{album.ArtistName} - {album.AlbumTitle}";
+            if (title.Length > 250)
+                title = title.Substring(0, 250);
+
+            DiscordEmbedBuilder embedBuilder = new DiscordEmbedBuilder()
+                .WithTitle(title)
+                .WithTimestamp(DateTime.Now)
+                .WithFooter("Powered by Requestrr");
+
+            if (!string.IsNullOrWhiteSpace(album.AlbumId))
+                embedBuilder.WithUrl($"https://musicbrainz.org/release-group/{album.AlbumId}");
+
+            if (!string.IsNullOrWhiteSpace(album.Overview))
+                embedBuilder.WithDescription(album.Overview.Substring(0, Math.Min(album.Overview.Length, 255)) + "(...)");
+
+            if (!string.IsNullOrWhiteSpace(album.PosterPath) && album.PosterPath.StartsWith("http", StringComparison.InvariantCultureIgnoreCase))
+                embedBuilder.WithImageUrl(album.PosterPath);
+
+            if (!string.IsNullOrWhiteSpace(album.ReleaseDate))
+            {
+                string year = album.ReleaseDate.Length >= 4 ? album.ReleaseDate.Substring(0, 4) : album.ReleaseDate;
+                embedBuilder.AddField("__Year__", year, true);
+            }
+
+            return embedBuilder.Build();
+        }
 
 
 
         private string GetFormattedMusicArtistName(MusicArtist music)
         {
             return LimitStringSize(music.ArtistName);
+        }
+        private string GetFormattedMusicAlbumName(MusicAlbum album)
+        {
+            string name = string.IsNullOrWhiteSpace(album.ArtistName) ? album.AlbumTitle : $"{album.ArtistName} - {album.AlbumTitle}";
+            return LimitStringSize(name);
         }
         private string LimitStringSize(string value, int limit = 100)
         {
@@ -148,6 +230,19 @@ namespace Requestrr.WebApi.RequestrrBot.ChatClients.Discord
             if (previousMusicSelector != null)
             {
                 DiscordSelectComponent musicSelector = new DiscordSelectComponent(previousMusicSelector.CustomId, GetFormattedMusicArtistName(music), previousMusicSelector.Options);
+                builder.AddComponents(musicSelector);
+            }
+
+            return builder;
+        }
+
+
+        private async Task<DiscordWebhookBuilder> AddPreviousAlbumDropdownsAsync(MusicAlbum album, DiscordWebhookBuilder builder)
+        {
+            DiscordSelectComponent previousMusicSelector = (await _interactionContext.GetOriginalResponseAsync()).FilterComponents<DiscordSelectComponent>().FirstOrDefault();
+            if (previousMusicSelector != null)
+            {
+                DiscordSelectComponent musicSelector = new DiscordSelectComponent(previousMusicSelector.CustomId, GetFormattedMusicAlbumName(album), previousMusicSelector.Options);
                 builder.AddComponents(musicSelector);
             }
 
