@@ -12,6 +12,7 @@ namespace Requestrr.WebApi.RequestrrBot.Music
 
         Task<IReadOnlyList<MusicAlbum>> SearchMusicForAlbumAsync(MusicRequest request, string albumName);
         Task<MusicAlbum> SearchMusicForAlbumIdAsync(MusicRequest request, string albumId);
+        Task<IReadOnlyList<MusicAlbum>> GetMusicArtistDiscographyAsync(MusicRequest request, string artistId);
 
 
         Task<Dictionary<string, MusicArtist>> SearchAvailableMusicArtistAsync(HashSet<string> artistIds, CancellationToken token);

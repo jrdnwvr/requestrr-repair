@@ -119,6 +119,11 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Lidarr
             return CreateInstance<IMusicSearcher>().SearchMusicForAlbumIdAsync(request, albumId);
         }
 
+        public Task<IReadOnlyList<MusicAlbum>> GetMusicArtistDiscographyAsync(MusicRequest request, string artistId)
+        {
+            return CreateInstance<IMusicSearcher>().GetMusicArtistDiscographyAsync(request, artistId);
+        }
+
 
         //-----------------------------
 

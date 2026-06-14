@@ -7,6 +7,10 @@
         public string ArtistName { get; set; }
         public string Overview { get; set; }
 
+        // Hints for telling same-named artists apart in the picker.
+        public string Disambiguation { get; set; } // curated MusicBrainz blurb, e.g. "1980s–1990s US grunge band"
+        public string YearsActive { get; set; }    // from MusicBrainz life-span, e.g. "1988–1994"
+
 
         public bool Available { get; set; }
         public bool Monitored { get; set; }

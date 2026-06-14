@@ -131,6 +131,15 @@ namespace Requestrr.WebApi.RequestrrBot.ChatClients.Discord
 
         // ---------------- Album-level requesting ----------------
 
+        public async Task ShowMusicAlbumArtistSelection(MusicRequest request, IReadOnlyList<MusicArtist> artists)
+        {
+            List<DiscordSelectComponentOption> options = artists.Take(15).Select(x => new DiscordSelectComponentOption(GetFormattedMusicArtistName(x), $"{request.CategoryId}/{x.ArtistId}")).ToList();
+            DiscordSelectComponent select = new DiscordSelectComponent($"MuABA/{_interactionContext.User.Id}/{request.CategoryId}", LimitStringSize("Select an artist..."), options);
+
+            await _interactionContext.EditOriginalResponseAsync(new DiscordWebhookBuilder().AddComponents(select).WithContent("Which artist did you mean? Pick one to see their albums:"));
+        }
+
+
         public async Task ShowMusicAlbumSelection(MusicRequest request, IReadOnlyList<MusicAlbum> albums)
         {
             List<DiscordSelectComponentOption> options = albums.Take(15).Select(x => new DiscordSelectComponentOption(GetFormattedMusicAlbumName(x), $"{request.CategoryId}/{x.AlbumId}")).ToList();
@@ -211,11 +220,23 @@ namespace Requestrr.WebApi.RequestrrBot.ChatClients.Discord
 
         private string GetFormattedMusicArtistName(MusicArtist music)
         {
-            return LimitStringSize(music.ArtistName);
+            // Prefer real years active; fall back to the curated disambiguation blurb so the
+            // parenthetical always helps tell same-named artists apart.
+            string hint = !string.IsNullOrWhiteSpace(music.YearsActive)
+                ? music.YearsActive
+                : (!string.IsNullOrWhiteSpace(music.Disambiguation) ? music.Disambiguation : null);
+
+            string name = hint != null ? $"{music.ArtistName} ({hint})" : music.ArtistName;
+            return LimitStringSize(name);
         }
         private string GetFormattedMusicAlbumName(MusicAlbum album)
         {
-            string name = string.IsNullOrWhiteSpace(album.ArtistName) ? album.AlbumTitle : $"{album.ArtistName} - {album.AlbumTitle}";
+            // The album picker is always scoped to one already-chosen artist, so lead with the
+            // title and append the year to disambiguate reissues/versions.
+            string year = !string.IsNullOrWhiteSpace(album.ReleaseDate) && album.ReleaseDate.Length >= 4
+                ? album.ReleaseDate.Substring(0, 4)
+                : null;
+            string name = year != null ? $"{album.AlbumTitle} ({year})" : album.AlbumTitle;
             return LimitStringSize(name);
         }
         private string LimitStringSize(string value, int limit = 100)
