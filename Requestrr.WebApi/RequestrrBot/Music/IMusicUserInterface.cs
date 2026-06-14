@@ -19,6 +19,7 @@ namespace Requestrr.WebApi.RequestrrBot.Music
         Task DisplayNotificationArtistSuccessAsync(MusicArtist music);
 
         // Album-level requesting
+        Task ShowMusicAlbumArtistSelection(MusicRequest request, IReadOnlyList<MusicArtist> artists);
         Task ShowMusicAlbumSelection(MusicRequest request, IReadOnlyList<MusicAlbum> albums);
         Task WarnNoMusicAlbumFoundAsync(string albumName);
         Task DisplayMusicAlbumDetailsAsync(MusicRequest request, MusicAlbum album);

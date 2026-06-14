@@ -124,14 +124,32 @@ namespace Requestrr.WebApi.RequestrrBot.Music
 
         // ---------------- Album-level requesting ----------------
 
-        public async Task SearchMusicForAlbumAsync(string albumName)
+        // Album mode is artist-anchored: resolve the artist first (so same-named bands and
+        // tribute/various-artist noise can't slip in), then show that artist's discography.
+        public async Task SearchMusicForAlbumAsync(string searchTerm)
         {
-            albumName = albumName.Replace(".", " ");
-            IReadOnlyList<MusicAlbum> albums = await _musicSearcher.SearchMusicForAlbumAsync(new MusicRequest(_user, _categoryId), albumName);
+            searchTerm = searchTerm.Replace(".", " ");
+            IReadOnlyList<MusicArtist> artists = await _musicSearcher.SearchMusicForArtistAsync(new MusicRequest(_user, _categoryId), searchTerm);
+
+            if (artists == null || !artists.Any())
+            {
+                await _userInterface.WarnNoMusicArtistFoundAsync(searchTerm);
+                return;
+            }
+
+            if (artists.Count > 1)
+                await _userInterface.ShowMusicAlbumArtistSelection(new MusicRequest(_user, _categoryId), artists);
+            else
+                await HandleAlbumArtistSelectionAsync(artists.Single().ArtistId);
+        }
+
+        public async Task HandleAlbumArtistSelectionAsync(string artistId)
+        {
+            IReadOnlyList<MusicAlbum> albums = await _musicSearcher.GetMusicArtistDiscographyAsync(new MusicRequest(_user, _categoryId), artistId);
 
             if (albums == null || !albums.Any())
             {
-                await _userInterface.WarnNoMusicAlbumFoundAsync(albumName);
+                await _userInterface.WarnNoMusicAlbumFoundAsync(artistId);
                 return;
             }
 

@@ -430,6 +430,81 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Lidarr
             throw new Exception("An error occurred while searching for music album by Id with Lidarr");
         }
 
+        /// <summary>
+        /// Returns an artist's requestable discography (studio albums + EPs, no live/compilation/remix),
+        /// fetched directly from MusicBrainz by artist MBID so browsing never adds anything to Lidarr.
+        /// Studio albums are listed first so EPs/promos are what gets dropped if the list exceeds the cap.
+        /// </summary>
+        public async Task<IReadOnlyList<MusicAlbum>> GetMusicArtistDiscographyAsync(MusicRequest request, string artistId)
+        {
+            const int discographyDisplayCap = 25; // Discord select component hard limit
+
+            try
+            {
+                string query = $"arid:{artistId} AND (primarytype:album OR primarytype:ep) AND -secondarytype:*";
+                var client = _httpClientFactory.CreateClient();
+                var httpRequest = new HttpRequestMessage(HttpMethod.Get,
+                    $"https://musicbrainz.org/ws/2/release-group?query={Uri.EscapeDataString(query)}&fmt=json&limit=100");
+                httpRequest.Headers.UserAgent.ParseAdd("Requestrr-repair/1.0 ( https://github.com/jrdnwvr/requestrr-repair )");
+
+                using var response = await client.SendAsync(httpRequest);
+                if (!response.IsSuccessStatusCode)
+                    throw new Exception($"MusicBrainz returned {(int)response.StatusCode} for artist discography");
+
+                JObject body = JObject.Parse(await response.Content.ReadAsStringAsync());
+                JArray releaseGroups = body["release-groups"] as JArray ?? new JArray();
+
+                var albums = new List<MusicAlbum>();
+                var eps = new List<MusicAlbum>();
+                foreach (JToken rg in releaseGroups)
+                {
+                    string primaryType = rg["primary-type"]?.ToString();
+                    JArray secondaryTypes = rg["secondary-types"] as JArray;
+
+                    // Defensive: the query already excludes these, but never show live/comp/remix/etc.
+                    bool isAlbum = string.Equals(primaryType, "Album", StringComparison.OrdinalIgnoreCase);
+                    bool isEp = string.Equals(primaryType, "EP", StringComparison.OrdinalIgnoreCase);
+                    if ((!isAlbum && !isEp) || (secondaryTypes != null && secondaryTypes.Count > 0))
+                        continue;
+
+                    string albumMbId = rg["id"]?.ToString();
+                    if (string.IsNullOrWhiteSpace(albumMbId))
+                        continue;
+
+                    JToken credit = (rg["artist-credit"] as JArray)?.FirstOrDefault();
+                    string artistName = credit?["name"]?.ToString() ?? credit?["artist"]?["name"]?.ToString();
+
+                    var album = new MusicAlbum
+                    {
+                        AlbumId = albumMbId,
+                        AlbumTitle = rg["title"]?.ToString(),
+                        ArtistId = artistId,
+                        ArtistName = artistName,
+                        ReleaseDate = rg["first-release-date"]?.ToString(),
+                        Available = false,
+                        Monitored = false,
+                        Requested = false
+                    };
+
+                    (isAlbum ? albums : eps).Add(album);
+                }
+
+                // Newest first within each bucket; undated sinks to the bottom.
+                static string SortKey(MusicAlbum a) => string.IsNullOrWhiteSpace(a.ReleaseDate) ? "0000" : a.ReleaseDate;
+                albums.Sort((a, b) => string.Compare(SortKey(b), SortKey(a), StringComparison.Ordinal));
+                eps.Sort((a, b) => string.Compare(SortKey(b), SortKey(a), StringComparison.Ordinal));
+
+                // Albums always make the cut before EPs.
+                return albums.Concat(eps).Take(discographyDisplayCap).ToArray();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while fetching discography for artist \"{artistId}\" from MusicBrainz: {ex.Message}");
+            }
+
+            throw new Exception("An error occurred while fetching the artist discography");
+        }
+
         public async Task<MusicRequestResult> RequestMusicAlbumAsync(MusicRequest request, MusicAlbum album)
         {
             try

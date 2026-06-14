@@ -724,7 +724,16 @@ namespace Requestrr.WebApi.RequestrrBot
 
         private async Task HandleMusicAlbumRequestAsync(ComponentInteractionCreateEventArgs e)
         {
-            if (e.Id.ToLower().StartsWith("muasa"))
+            if (e.Id.ToLower().StartsWith("muaba"))
+            {
+                // Album mode: an artist was picked -> show that artist's discography.
+                if (e.Values != null && e.Values.Any())
+                {
+                    await CreateMusicRequestWorkFlow(e, int.Parse(e.Values.Single().Split("/").First()))
+                        .HandleAlbumArtistSelectionAsync(e.Values.Single().Split("/").Last());
+                }
+            }
+            else if (e.Id.ToLower().StartsWith("muasa"))
             {
                 if (e.Values != null && e.Values.Any())
                 {
