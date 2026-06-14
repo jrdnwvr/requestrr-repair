@@ -289,7 +289,9 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Lidarr
                 List<JSONMusicArtist> jsonMusic = JsonConvert.DeserializeObject<List<JSONMusicArtist>>(jsonResponse);
 
                 //TODO: Correct this, searching should handle both artist and albums
-                return jsonMusic.Where(x => x != null).Select(x => ConvertToMusic(x)).ToArray();
+                MusicArtist[] artists = jsonMusic.Where(x => x != null).Select(x => ConvertToMusic(x)).ToArray();
+                await EnrichWithYearsActiveAsync(artists, artistName);
+                return artists;
             }
             catch (Exception ex)
             {
@@ -667,6 +669,7 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Lidarr
                 ArtistId = jsonArtist.ForeignArtistId.ToString(),
                 ArtistName = jsonArtist.ArtistName,
                 Overview = jsonArtist.Overview,
+                Disambiguation = jsonArtist.Disambiguation,
 
                 Available = (jsonArtist.Statistics?.SizeOnDisk ?? -1) > 0,
                 Monitored = jsonArtist.Monitored,
@@ -677,6 +680,79 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Lidarr
                 EmbyUrl = string.Empty,
                 PosterPath = GetPosterImageUrl(jsonArtist.Images)
             };
+        }
+
+
+        /// <summary>
+        /// Best-effort enrichment of artist results with their active years from MusicBrainz
+        /// (Lidarr's artist lookup does not expose life-span dates). One query per search;
+        /// any failure (network, rate-limit) is swallowed so search still works without years.
+        /// </summary>
+        private async Task EnrichWithYearsActiveAsync(IReadOnlyList<MusicArtist> artists, string term)
+        {
+            if (artists == null || artists.Count == 0 || string.IsNullOrWhiteSpace(term))
+                return;
+
+            try
+            {
+                var client = _httpClientFactory.CreateClient();
+                var request = new HttpRequestMessage(HttpMethod.Get,
+                    $"https://musicbrainz.org/ws/2/artist?query={Uri.EscapeDataString(term.Trim())}&fmt=json&limit=50");
+                // MusicBrainz requires a descriptive User-Agent or it returns 403.
+                request.Headers.UserAgent.ParseAdd("Requestrr-repair/1.0 ( https://github.com/jrdnwvr/requestrr-repair )");
+
+                using var response = await client.SendAsync(request);
+                if (!response.IsSuccessStatusCode)
+                    return;
+
+                JObject body = JObject.Parse(await response.Content.ReadAsStringAsync());
+                JArray mbArtists = body["artists"] as JArray;
+                if (mbArtists == null)
+                    return;
+
+                var yearsByMbId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (JToken mb in mbArtists)
+                {
+                    string mbId = mb["id"]?.ToString();
+                    if (string.IsNullOrWhiteSpace(mbId) || yearsByMbId.ContainsKey(mbId))
+                        continue;
+
+                    string years = FormatYearsActive(mb["life-span"]);
+                    if (!string.IsNullOrWhiteSpace(years))
+                        yearsByMbId[mbId] = years;
+                }
+
+                foreach (MusicArtist artist in artists)
+                {
+                    if (!string.IsNullOrWhiteSpace(artist.ArtistId) && yearsByMbId.TryGetValue(artist.ArtistId, out string years))
+                        artist.YearsActive = years;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not enrich artist results with years active from MusicBrainz: " + ex.Message);
+            }
+        }
+
+        private static string FormatYearsActive(JToken lifeSpan)
+        {
+            if (lifeSpan == null)
+                return null;
+
+            string begin = lifeSpan["begin"]?.ToString();
+            string end = lifeSpan["end"]?.ToString();
+            bool ended = lifeSpan["ended"]?.Value<bool>() ?? false;
+
+            string beginYear = begin != null && begin.Length >= 4 ? begin.Substring(0, 4) : null;
+            string endYear = end != null && end.Length >= 4 ? end.Substring(0, 4) : null;
+
+            if (string.IsNullOrWhiteSpace(beginYear))
+                return null;
+
+            if (!string.IsNullOrWhiteSpace(endYear))
+                return $"{beginYear}–{endYear}";   // 1988–1994
+
+            return ended ? $"{beginYear}–?" : $"{beginYear}–present";
         }
 
 

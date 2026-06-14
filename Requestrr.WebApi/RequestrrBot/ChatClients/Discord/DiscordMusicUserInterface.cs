@@ -211,7 +211,14 @@ namespace Requestrr.WebApi.RequestrrBot.ChatClients.Discord
 
         private string GetFormattedMusicArtistName(MusicArtist music)
         {
-            return LimitStringSize(music.ArtistName);
+            // Prefer real years active; fall back to the curated disambiguation blurb so the
+            // parenthetical always helps tell same-named artists apart.
+            string hint = !string.IsNullOrWhiteSpace(music.YearsActive)
+                ? music.YearsActive
+                : (!string.IsNullOrWhiteSpace(music.Disambiguation) ? music.Disambiguation : null);
+
+            string name = hint != null ? $"{music.ArtistName} ({hint})" : music.ArtistName;
+            return LimitStringSize(name);
         }
         private string GetFormattedMusicAlbumName(MusicAlbum album)
         {
