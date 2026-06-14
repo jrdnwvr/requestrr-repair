@@ -145,7 +145,18 @@ namespace Requestrr.WebApi.RequestrrBot.ChatClients.Discord
             List<DiscordSelectComponentOption> options = albums.Take(15).Select(x => new DiscordSelectComponentOption(GetFormattedMusicAlbumName(x), $"{request.CategoryId}/{x.AlbumId}")).ToList();
             DiscordSelectComponent select = new DiscordSelectComponent($"MuASA/{_interactionContext.User.Id}/{request.CategoryId}", LimitStringSize("Select an album..."), options);
 
-            await _interactionContext.EditOriginalResponseAsync(new DiscordWebhookBuilder().AddComponents(select).WithContent("Here are the albums I found, which one would you like?"));
+            var builder = new DiscordWebhookBuilder().AddComponents(select);
+
+            // Shortcut: add the whole discography in one click. The album list is artist-anchored,
+            // so every entry shares one artist; reuse the existing artist-request route (MuRCA).
+            string artistId = albums.Select(a => a.ArtistId).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+            if (!string.IsNullOrWhiteSpace(artistId))
+            {
+                var addAllButton = new DiscordButtonComponent(ButtonStyle.Secondary, $"MuRCA/{_interactionContext.User.Id}/{request.CategoryId}/{artistId}", "Add all albums by this artist", false, new DiscordComponentEmoji(DiscordEmoji.FromUnicode("📀")));
+                builder.AddComponents(addAllButton);
+            }
+
+            await _interactionContext.EditOriginalResponseAsync(builder.WithContent("Pick an album — or add the artist's whole discography:"));
         }
 
 
