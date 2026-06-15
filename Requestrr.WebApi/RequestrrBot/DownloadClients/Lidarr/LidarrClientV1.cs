@@ -437,7 +437,7 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Lidarr
         /// </summary>
         public async Task<IReadOnlyList<MusicAlbum>> GetMusicArtistDiscographyAsync(MusicRequest request, string artistId)
         {
-            const int discographyDisplayCap = 25; // Discord select component hard limit
+            const int discographyDisplayCap = 100; // up to 4 Discord selects (25 each) in one message
 
             try
             {

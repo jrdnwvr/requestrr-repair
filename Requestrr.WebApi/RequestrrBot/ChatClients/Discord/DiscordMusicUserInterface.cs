@@ -26,7 +26,7 @@ namespace Requestrr.WebApi.RequestrrBot.ChatClients.Discord
 
         public async Task ShowMusicArtistSelection(MusicRequest request, IReadOnlyList<MusicArtist> music)
         {
-            List<DiscordSelectComponentOption> options = music.Take(15).Select(x => new DiscordSelectComponentOption(GetFormattedMusicArtistName(x), $"{request.CategoryId}/{x.ArtistId}")).ToList();
+            List<DiscordSelectComponentOption> options = music.Take(25).Select(x => new DiscordSelectComponentOption(GetFormattedMusicArtistName(x), $"{request.CategoryId}/{x.ArtistId}")).ToList();
             DiscordSelectComponent select = new DiscordSelectComponent($"MuRSA/{_interactionContext.User.Id}/{request.CategoryId}", LimitStringSize(Language.Current.DiscordCommandMusicArtistRequestHelpDropdown), options);
 
             await _interactionContext.EditOriginalResponseAsync(new DiscordWebhookBuilder().AddComponents(select).WithContent(Language.Current.DiscordCommandMusicArtistRequestHelp));
@@ -133,7 +133,7 @@ namespace Requestrr.WebApi.RequestrrBot.ChatClients.Discord
 
         public async Task ShowMusicAlbumArtistSelection(MusicRequest request, IReadOnlyList<MusicArtist> artists)
         {
-            List<DiscordSelectComponentOption> options = artists.Take(15).Select(x => new DiscordSelectComponentOption(GetFormattedMusicArtistName(x), $"{request.CategoryId}/{x.ArtistId}")).ToList();
+            List<DiscordSelectComponentOption> options = artists.Take(25).Select(x => new DiscordSelectComponentOption(GetFormattedMusicArtistName(x), $"{request.CategoryId}/{x.ArtistId}")).ToList();
             DiscordSelectComponent select = new DiscordSelectComponent($"MuABA/{_interactionContext.User.Id}/{request.CategoryId}", LimitStringSize("Select an artist..."), options);
 
             await _interactionContext.EditOriginalResponseAsync(new DiscordWebhookBuilder().AddComponents(select).WithContent("Which artist did you mean? Pick one to see their albums:"));
@@ -142,10 +142,25 @@ namespace Requestrr.WebApi.RequestrrBot.ChatClients.Discord
 
         public async Task ShowMusicAlbumSelection(MusicRequest request, IReadOnlyList<MusicAlbum> albums)
         {
-            List<DiscordSelectComponentOption> options = albums.Take(15).Select(x => new DiscordSelectComponentOption(GetFormattedMusicAlbumName(x), $"{request.CategoryId}/{x.AlbumId}")).ToList();
-            DiscordSelectComponent select = new DiscordSelectComponent($"MuASA/{_interactionContext.User.Id}/{request.CategoryId}", LimitStringSize("Select an album..."), options);
+            // A Discord select holds at most 25 options, but a message can carry several selects.
+            // Split a large discography across up to 4 dropdowns (100 albums) so nothing is hidden,
+            // leaving the 5th action row for the "add all" button.
+            const int perMenu = 25;
+            const int maxMenus = 4;
+            int menuCount = Math.Min(maxMenus, (albums.Count + perMenu - 1) / perMenu);
 
-            var builder = new DiscordWebhookBuilder().AddComponents(select);
+            var builder = new DiscordWebhookBuilder();
+            for (int m = 0; m < menuCount; m++)
+            {
+                List<MusicAlbum> chunk = albums.Skip(m * perMenu).Take(perMenu).ToList();
+                List<DiscordSelectComponentOption> options = chunk
+                    .Select(x => new DiscordSelectComponentOption(GetFormattedMusicAlbumName(x), $"{request.CategoryId}/{x.AlbumId}"))
+                    .ToList();
+                // Custom id stays MuASA-prefixed (so routing is unchanged); the trailing index just
+                // keeps each select's id unique within the message.
+                var select = new DiscordSelectComponent($"MuASA/{_interactionContext.User.Id}/{request.CategoryId}/{m}", LimitStringSize(BuildAlbumMenuPlaceholder(chunk, menuCount)), options);
+                builder.AddComponents(select);
+            }
 
             // Shortcut: add the whole discography in one click. The album list is artist-anchored,
             // so every entry shares one artist; reuse the existing artist-request route (MuRCA).
@@ -156,7 +171,30 @@ namespace Requestrr.WebApi.RequestrrBot.ChatClients.Discord
                 builder.AddComponents(addAllButton);
             }
 
-            await _interactionContext.EditOriginalResponseAsync(builder.WithContent("Pick an album — or add the artist's whole discography:"));
+            int shown = Math.Min(albums.Count, menuCount * perMenu);
+            string content = albums.Count > shown
+                ? $"Pick an album (showing {shown} of {albums.Count}) — or add the artist's whole discography:"
+                : "Pick an album — or add the artist's whole discography:";
+
+            await _interactionContext.EditOriginalResponseAsync(builder.WithContent(content));
+        }
+
+
+        // Labels a dropdown by the year span of the albums it holds (e.g. "Albums 1979–1970"),
+        // so users can jump to the right era when a discography is split across menus.
+        private string BuildAlbumMenuPlaceholder(IReadOnlyList<MusicAlbum> chunk, int menuCount)
+        {
+            if (menuCount <= 1)
+                return "Select an album...";
+
+            string Year(MusicAlbum a) => !string.IsNullOrWhiteSpace(a.ReleaseDate) && a.ReleaseDate.Length >= 4 ? a.ReleaseDate.Substring(0, 4) : null;
+            string first = chunk.Select(Year).FirstOrDefault(y => y != null);
+            string last = chunk.Select(Year).LastOrDefault(y => y != null);
+
+            if (first != null && last != null)
+                return first == last ? $"Albums ({first})" : $"Albums ({first}–{last})";
+
+            return "Select an album...";
         }
 
 
