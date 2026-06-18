@@ -687,17 +687,41 @@ namespace Requestrr.WebApi.RequestrrBot.DownloadClients.Lidarr
             response = await HttpPutAsync($"{BaseURL}/artist/{lidarrMusicId}", JsonConvert.SerializeObject(lidarrMusic));
             await response.ThrowIfNotSuccessfulAsync("LidarrUpdateMusic failed", x => x.error);
 
+            // The artist may already exist with nothing (or only one album) monitored — e.g. it was
+            // added for a single-album request. To honour requesting the whole artist, monitor every
+            // album so the search below actually has targets.
+            HttpResponseMessage albumsResponse = await HttpGetAsync($"{BaseURL}/album?artistId={lidarrMusicId}");
+            if (albumsResponse.IsSuccessStatusCode)
+            {
+                JArray artistAlbums = JArray.Parse(await albumsResponse.Content.ReadAsStringAsync());
+                int[] albumIds = artistAlbums
+                    .Select(x => x["id"]?.Value<int>() ?? 0)
+                    .Where(id => id > 0)
+                    .ToArray();
+
+                if (albumIds.Length > 0)
+                {
+                    HttpResponseMessage monitorResponse = await HttpPutAsync($"{BaseURL}/album/monitor", JsonConvert.SerializeObject(new
+                    {
+                        albumIds = albumIds,
+                        monitored = true
+                    }));
+                    await monitorResponse.ThrowIfNotSuccessfulAsync("LidarrMonitorAlbums failed", x => x.error);
+                }
+            }
+
             if (_lidarrSettings.SearchNewRequests)
             {
                 try
                 {
+                    // Lidarr's command is "ArtistSearch" with an "artistId" (there is no "musicSearch").
                     response = await HttpPostAsync($"{BaseURL}/command", JsonConvert.SerializeObject(new
                     {
-                        name = "musicSearch",
-                        musicIds = new[] { lidarrMusicId }
+                        name = "ArtistSearch",
+                        artistId = lidarrMusicId
                     }));
 
-                    await response.ThrowIfNotSuccessfulAsync("LidarrMusicSearchCommand failed", x => x.error);
+                    await response.ThrowIfNotSuccessfulAsync("LidarrArtistSearchCommand failed", x => x.error);
                 }
                 catch (Exception ex)
                 {
